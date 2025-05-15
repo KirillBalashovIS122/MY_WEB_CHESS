@@ -6,6 +6,10 @@ import PlayerInfo from './components/PlayerInfo.jsx';
 import GameOverModal from './components/GameOverModal.jsx';
 import './styles.css';
 
+const API_BASE_URL = process.env.NODE_ENV === 'development' 
+  ? 'http://localhost:8000' 
+  : '/api';
+
 const App = () => {
   const [mode, setMode] = useState(null);
   const [gameId, setGameId] = useState(null);
@@ -14,30 +18,50 @@ const App = () => {
 
   const startGame = async (player1, player2) => {
     try {
-      const response = await fetch(`http://localhost:8000/game/start?mode=${mode}&player1=${player1}&player2=${player2}`, {
-        method: 'POST'
-      });
-      if (!response.ok) throw new Error('Failed to start game');
+      if (!player1.trim()) {
+        alert("Введите имя игрока 1");
+        return;
+      }
+      
+      const response = await fetch(
+        `${API_BASE_URL}/game/start?mode=${mode}&player1=${player1}&player2=${player2}`, 
+        { method: 'POST' }
+      );
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Ошибка сервера");
+      }
+      
       const data = await response.json();
       setGameId(data.game_id);
       setPlayers({ player1, player2 });
+      setGameState(null);
     } catch (error) {
+      alert(error.message);
       console.error('Error starting game:', error);
     }
   };
 
   useEffect(() => {
     if (gameId) {
-      const interval = setInterval(async () => {
+      const fetchState = async () => {
         try {
-          const response = await fetch(`http://localhost:8000/game/state?game_id=${gameId}`);
-          if (!response.ok) throw new Error('Failed to fetch game state');
+          const response = await fetch(`${API_BASE_URL}/game/state?game_id=${gameId}`);
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || "Ошибка сервера");
+          }
           const data = await response.json();
           setGameState(data);
+          console.log('Game state updated:', data);
         } catch (error) {
           console.error('Error fetching game state:', error);
         }
-      }, 1000);
+      };
+      
+      fetchState();
+      const interval = setInterval(fetchState, 1000);
       return () => clearInterval(interval);
     }
   }, [gameId]);
@@ -61,11 +85,16 @@ const App = () => {
   }
   return (
     <div className="game-container">
-      {gameState && (
+      {gameState ? (
         <>
-          <PlayerInfo player={players.player1} moves={gameState.moves} />
-          <ChessBoard gameId={gameId} />
-          <PlayerInfo player={players.player2} moves={gameState.moves} />
+          <div className="turn-indicator">
+            Ход: {gameState.turn === 'white' ? 'Белые' : 'Чёрные'}
+          </div>
+          <PlayerInfo player={players.player1} moves={gameState.moves} playerNumber={1} gameId={gameId} />
+          <div className="board-container">
+            <ChessBoard gameId={gameId} gameState={gameState} />
+          </div>
+          <PlayerInfo player={players.player2} moves={gameState.moves} playerNumber={2} gameId={gameId} />
           {gameState.game_over && (
             <GameOverModal
               winner={gameState.winner}
@@ -74,6 +103,8 @@ const App = () => {
             />
           )}
         </>
+      ) : (
+        <div>Loading game...</div>
       )}
     </div>
   );

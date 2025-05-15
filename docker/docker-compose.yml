@@ -1,10 +1,19 @@
 services:
   backend:
-    build: ../backend
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: my-web-chess-backend
     ports:
       - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+
   frontend:
-    build: ../frontend
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: my-web-chess-frontend
     ports:
       - "3000:80"
     depends_on:
