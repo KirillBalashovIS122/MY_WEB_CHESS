@@ -16,17 +16,25 @@ const App = () => {
   const [players, setPlayers] = useState({ player1: '', player2: '' });
   const [gameState, setGameState] = useState(null);
 
-  const startGame = async (player1, player2) => {
+  const startGame = async (player1, aiModelOrPlayer2) => {
     try {
-      if (!player1.trim()) {
-        alert("Введите имя игрока 1");
-        return;
-      }
-      
-      const response = await fetch(
-        `${API_BASE_URL}/game/start?mode=${mode}&player1=${player1}&player2=${player2}`, 
-        { method: 'POST' }
-      );
+      const body = {
+        mode: mode,
+        player1: player1,
+        ...(mode === 'pvp' ? { player2: aiModelOrPlayer2 } : {}),
+        ...(mode === 'pvai' ? { 
+          ai_config: {
+            use_stockfish: aiModelOrPlayer2 === 'stockfish',
+            model: aiModelOrPlayer2 !== 'stockfish' ? aiModelOrPlayer2 : null
+          }
+        } : {})
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/game/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
       
       if (!response.ok) {
         const error = await response.json();
@@ -35,7 +43,10 @@ const App = () => {
       
       const data = await response.json();
       setGameId(data.game_id);
-      setPlayers({ player1, player2 });
+      setPlayers({ 
+        player1, 
+        player2: mode === 'pvp' ? aiModelOrPlayer2 : 'AI' 
+      });
       setGameState(null);
     } catch (error) {
       alert(error.message);
@@ -47,7 +58,7 @@ const App = () => {
     if (gameId) {
       const fetchState = async () => {
         try {
-          const response = await fetch(`${API_BASE_URL}/game/state?game_id=${gameId}`);
+          const response = await fetch(`${API_BASE_URL}/api/game/state?game_id=${gameId}`);
           if (!response.ok) {
             const error = await response.json();
             throw new Error(error.detail || "Ошибка сервера");
@@ -92,7 +103,7 @@ const App = () => {
           </div>
           <PlayerInfo player={players.player1} moves={gameState.moves} playerNumber={1} gameId={gameId} />
           <div className="board-container">
-            <ChessBoard gameId={gameId} gameState={gameState} />
+            <ChessBoard gameId={gameId} gameState={gameState} onMove={setGameState} />
           </div>
           <PlayerInfo player={players.player2} moves={gameState.moves} playerNumber={2} gameId={gameId} />
           {gameState.game_over && (

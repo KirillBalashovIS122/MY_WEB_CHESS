@@ -8,7 +8,7 @@ const API_BASE_URL = process.env.NODE_ENV === 'development'
 const PlayerInfo = ({ player, moves, playerNumber, gameId }) => {
   const handleSurrender = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/game/surrender`, {
+      const response = await fetch(`${API_BASE_URL}/api/game/surrender`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ game_id: gameId, player: playerNumber })

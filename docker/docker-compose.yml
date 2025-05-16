@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   backend:
     build:
@@ -8,6 +10,8 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+    volumes:
+      - ../backend/models:/app/models
 
   frontend:
     build:
@@ -15,6 +19,11 @@ services:
       dockerfile: Dockerfile
     image: my-web-chess-frontend
     ports:
-      - "3000:80"
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
     depends_on:
       - backend

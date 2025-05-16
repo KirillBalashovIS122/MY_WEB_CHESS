@@ -1,9 +1,15 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import chess
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Dict
+import os
+import logging
+from datetime import datetime
+import uuid
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -15,8 +21,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-games = {}
-
 class GameState(BaseModel):
     game_id: str
     board: str
@@ -24,6 +28,10 @@ class GameState(BaseModel):
     moves: List[str]
     game_over: bool
     winner: Optional[str] = None
+    ai_thinking: bool = False
+    mode: str
+    player1: str
+    player2: str
 
 class MoveRequest(BaseModel):
     game_id: str
@@ -31,30 +39,73 @@ class MoveRequest(BaseModel):
     to_square: str
     promotion: Optional[str] = None
 
+class AIConfig(BaseModel):
+    depth: int = 3
+    model: str = "custom_model.h5"
+    use_stockfish: bool = False
+    skill_level: int = 20
+
+class GameConfig(BaseModel):
+    mode: str
+    player1: str
+    player2: Optional[str] = None
+    ai_config: Optional[AIConfig] = None
+
 class SurrenderRequest(BaseModel):
     game_id: str
     player: int
 
-@app.post("/game/start")
-async def start_game(mode: str, player1: str = "Player1", player2: str = None):
-    if mode not in ["pvp", "pvai", "aivai"]:
+class GameInfo(BaseModel):
+    game_id: str
+    mode: str
+    player1: str
+    player2: str
+    started_at: str
+    moves_count: int
+    status: str
+
+games: Dict[str, Dict] = {}
+ai_tasks: Dict[str, asyncio.Task] = {}
+
+@app.post("/api/game/start")
+async def start_game(config: GameConfig):
+    if len(config.player1) > 20 or (config.player2 and len(config.player2) > 20):
+        raise HTTPException(status_code=400, detail="Player name too long")
+    
+    if config.mode not in ["pvp", "pvai", "aivai"]:
         raise HTTPException(status_code=400, detail="Invalid mode")
     
-    player2 = "AI" if mode in ["pvai", "aivai"] else (player2 or "Player2")
-    game_id = str(len(games) + 1)
+    player2 = config.player2 or ("AI" if config.mode in ["pvai", "aivai"] else "Player2")
+    game_id = str(uuid.uuid4())
+    
+    default_ai_config = {
+        "depth": 3,
+        "model": config.ai_config.model if config.ai_config else "custom_model.h5",
+        "use_stockfish": config.ai_config.use_stockfish if config.ai_config else False,
+        "skill_level": 20
+    }
+    
     games[game_id] = {
         "board": chess.Board(),
-        "mode": mode,
-        "player1": player1,
+        "mode": config.mode,
+        "player1": config.player1,
         "player2": player2,
         "moves": [],
         "game_over": False,
-        "winner": None
+        "winner": None,
+        "ai_config": default_ai_config,
+        "ai_thinking": False,
+        "started_at": datetime.now().isoformat(),
+        "status": "waiting"
     }
-    print(f"Game started: ID={game_id}, Mode={mode}, Player1={player1}, Player2={player2}")
-    return {"game_id": game_id}
+    
+    if config.mode == "aivai":
+        games[game_id]["status"] = "playing"
+        asyncio.create_task(make_ai_move(game_id))
+    
+    return {"game_id": game_id, "player2": player2}
 
-@app.get("/game/state", response_model=GameState)
+@app.get("/api/game/state", response_model=GameState)
 async def get_state(game_id: str):
     game = games.get(game_id)
     if not game:
@@ -67,10 +118,14 @@ async def get_state(game_id: str):
         turn="white" if board.turn else "black",
         moves=[move.uci() for move in board.move_stack],
         game_over=game["game_over"],
-        winner=game["winner"]
+        winner=game["winner"],
+        ai_thinking=game.get("ai_thinking", False),
+        mode=game["mode"],
+        player1=game["player1"],
+        player2=game["player2"]
     )
 
-@app.get("/game/select")
+@app.get("/api/game/select")
 async def select_piece(game_id: str, square: str):
     game = games.get(game_id)
     if not game:
@@ -83,13 +138,12 @@ async def select_piece(game_id: str, square: str):
             move.uci() for move in board.legal_moves
             if move.from_square == square
         ]
-        print(f"Selected square {square}: Possible moves={possible_moves}")
         return {"possible_moves": possible_moves}
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid square")
 
-@app.post("/game/move")
-async def make_move(move: MoveRequest):
+@app.post("/api/game/move")
+async def make_move(move: MoveRequest, background_tasks: BackgroundTasks):
     game = games.get(move.game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -99,59 +153,46 @@ async def make_move(move: MoveRequest):
         raise HTTPException(status_code=400, detail="Game is already over")
     
     try:
+        if game["status"] == "waiting":
+            game["status"] = "playing"
+        
         uci_move = f"{move.from_square}{move.to_square}"
         move_obj = chess.Move.from_uci(uci_move)
         
         if (move_obj.to_square // 8 == 7 and board.piece_at(move_obj.from_square).piece_type == chess.PAWN and board.turn) or \
            (move_obj.to_square // 8 == 0 and board.piece_at(move_obj.from_square).piece_type == chess.PAWN and not board.turn):
             if not move.promotion:
-                move.promotion = 'q'
+                raise HTTPException(status_code=400, detail="Promotion required")
             uci_move += move.promotion.lower()
             move_obj = chess.Move.from_uci(uci_move)
         
         if move_obj not in board.legal_moves:
             raise HTTPException(status_code=400, detail="Illegal move")
         
-        print(f"Applying move: {uci_move}")
         board.push(move_obj)
         game["moves"].append(move_obj.uci())
         
         if board.is_game_over():
             game["game_over"] = True
+            game["status"] = "finished"
             result = board.result()
-            if result == "1-0":
-                game["winner"] = game["player1"]
-            elif result == "0-1":
-                game["winner"] = game["player2"]
-            else:
-                game["winner"] = "Draw"
-            print(f"Game over: Result={result}, Winner={game['winner']}")
+            game["winner"] = (
+                game["player1"] if result == "1-0" 
+                else game["player2"] if result == "0-1" 
+                else "Draw"
+            )
         
         if game["mode"] in ["pvai", "aivai"] and not game["game_over"]:
             if (game["mode"] == "pvai" and not board.turn) or game["mode"] == "aivai":
-                await asyncio.sleep(1 if game["mode"] == "aivai" else 0)
-                from chess_ai import get_best_move
-                ai_move = await get_best_move(board)
-                if ai_move:
-                    board.push(ai_move)
-                    game["moves"].append(ai_move.uci())
-                    print(f"AI move: {ai_move.uci()}")
-                    if board.is_game_over():
-                        game["game_over"] = True
-                        result = board.result()
-                        if result == "1-0":
-                            game["winner"] = game["player1"]
-                        elif result == "0-1":
-                            game["winner"] = game["player2"]
-                        else:
-                            game["winner"] = "Draw"
-                        print(f"Game over: Result={result}, Winner={game['winner']}")
+                background_tasks.add_task(make_ai_move, move.game_id)
         
         return {"success": True, "state": await get_state(move.game_id)}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid move format: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid move: {str(e)}")
+    except AttributeError:
+        raise HTTPException(status_code=400, detail="No piece at starting square")
 
-@app.post("/game/surrender")
+@app.post("/api/game/surrender")
 async def surrender_game(surrender: SurrenderRequest):
     game = games.get(surrender.game_id)
     if not game:
@@ -161,12 +202,94 @@ async def surrender_game(surrender: SurrenderRequest):
         raise HTTPException(status_code=400, detail="Game is already over")
     
     game["game_over"] = True
-    if surrender.player == 1:
-        game["winner"] = game["player2"]
-    elif surrender.player == 2:
-        game["winner"] = game["player1"]
-    else:
-        raise HTTPException(status_code=400, detail="Invalid player number")
+    game["status"] = "finished"
+    game["winner"] = game["player2"] if surrender.player == 1 else game["player1"]
     
-    print(f"Game surrendered: ID={surrender.game_id}, Loser=Player{surrender.player}, Winner={game['winner']}")
     return {"success": True, "state": await get_state(surrender.game_id)}
+
+@app.post("/api/ai/configure")
+async def configure_ai(game_id: str, config: AIConfig):
+    game = games.get(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    if game["mode"] not in ["pvai", "aivai"]:
+        raise HTTPException(status_code=400, detail="AI configuration only available in pvai or aivai modes")
+    
+    game["ai_config"] = config.dict()
+    return {"status": "AI configuration updated"}
+
+@app.get("/api/ai/models", response_model=dict)
+async def get_ai_models():
+    models = []
+    model_dir = "models"
+    if os.path.exists(model_dir):
+        models = [f for f in os.listdir(model_dir) if f.endswith(".h5")]
+    return {"models": models}
+
+@app.get("/api/games/active", response_model=List[GameInfo])
+async def get_active_games():
+    active = []
+    for game_id, game in games.items():
+        if game["status"] != "finished":
+            active.append({
+                "game_id": game_id,
+                "mode": game["mode"],
+                "player1": game["player1"],
+                "player2": game["player2"],
+                "started_at": game["started_at"],
+                "moves_count": len(game["moves"]),
+                "status": game["status"]
+            })
+    return active
+
+async def make_ai_move(game_id: str):
+    game = games.get(game_id)
+    if not game or game["game_over"]:
+        return
+    
+    game["ai_thinking"] = True
+    
+    try:
+        board = game["board"]
+        config = game["ai_config"]
+        
+        from chess_ai import get_best_move
+        
+        ai_move = await get_best_move(
+            board,
+            use_model=not config["use_stockfish"]
+        )
+        
+        if ai_move and ai_move in board.legal_moves:
+            board.push(ai_move)
+            game["moves"].append(ai_move.uci())
+            
+            if board.is_game_over():
+                game["game_over"] = True
+                game["status"] = "finished"
+                result = board.result()
+                game["winner"] = (
+                    game["player1"] if result == "1-0" 
+                    else game["player2"] if result == "0-1" 
+                    else "Draw"
+                )
+            
+            if game["mode"] == "aivai" and not game["game_over"]:
+                await asyncio.sleep(1)
+                asyncio.create_task(make_ai_move(game_id))
+    except Exception as e:
+        logger.error(f"AI move failed in game {game_id}: {str(e)}")
+    finally:
+        game["ai_thinking"] = False
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Starting Chess Web App API")
+    os.makedirs("models", exist_ok=True)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("Shutting down Chess Web App API")
+    for task in ai_tasks.values():
+        task.cancel()

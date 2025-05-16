@@ -153,3 +153,64 @@ body {
     border-radius: 8px;
     margin-top: 1rem;
 }
+
+.model-selector {
+    margin: 1rem 0;
+}
+
+.model-selector h3 {
+    color: #4caf50;
+    font-size: 1.5rem;
+    margin: 0.5rem 0;
+}
+
+.model-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.model-buttons button {
+    background: rgba(200, 230, 201, 0.7);
+    border: 2px solid #4caf50;
+    color: #2e7d32;
+    padding: 0.5rem 1rem;
+    font-size: 1.2rem;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.model-buttons button.selected {
+    background: #4caf50;
+    color: white;
+}
+
+.promotion-dialog {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #f0f0f0;
+    border: 2px solid #4caf50;
+    border-radius: 12px;
+    padding: 1.5rem;
+    text-align: center;
+    z-index: 1000;
+}
+
+.promotion-options {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+}
+
+.promotion-options button {
+    background: #4caf50;
+    border: none;
+    padding: 0.8rem;
+    font-size: 1.5rem;
+    color: white;
+    cursor: pointer;
+    border-radius: 8px;
+}
