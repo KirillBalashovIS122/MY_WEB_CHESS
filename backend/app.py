@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -5,10 +6,11 @@ import chess
 import asyncio
 from typing import List, Optional, Dict
 import os
-import logging
-from datetime import datetime
 import uuid
+from datetime import datetime
 
+# Настройка логирования
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -41,7 +43,7 @@ class MoveRequest(BaseModel):
 
 class AIConfig(BaseModel):
     depth: int = 3
-    model: str = "custom_model.h5"
+    model: Optional[str] = "custom_model.h5"  # Изменено: model теперь необязательный
     use_stockfish: bool = False
     skill_level: int = 20
 
@@ -69,6 +71,7 @@ ai_tasks: Dict[str, asyncio.Task] = {}
 
 @app.post("/api/game/start")
 async def start_game(config: GameConfig):
+    logger.debug(f"Received game start request with body: {config.dict()}")
     if len(config.player1) > 20 or (config.player2 and len(config.player2) > 20):
         raise HTTPException(status_code=400, detail="Player name too long")
     
@@ -101,8 +104,10 @@ async def start_game(config: GameConfig):
     
     if config.mode == "aivai":
         games[game_id]["status"] = "playing"
+        logger.info(f"Scheduling AI move for AIVAI game {game_id}")
         asyncio.create_task(make_ai_move(game_id))
     
+    logger.info(f"Game {game_id} started: {config.mode}, player1: {config.player1}, player2: {player2}")
     return {"game_id": game_id, "player2": player2}
 
 @app.get("/api/game/state", response_model=GameState)
@@ -138,6 +143,7 @@ async def select_piece(game_id: str, square: str):
             move.uci() for move in board.legal_moves
             if move.from_square == square
         ]
+        logger.debug(f"Selected square {square} in game {game_id}, possible moves: {possible_moves}")
         return {"possible_moves": possible_moves}
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid square")
@@ -171,6 +177,7 @@ async def make_move(move: MoveRequest, background_tasks: BackgroundTasks):
         
         board.push(move_obj)
         game["moves"].append(move_obj.uci())
+        logger.info(f"Move {move_obj.uci()} made in game {move.game_id}")
         
         if board.is_game_over():
             game["game_over"] = True
@@ -181,9 +188,11 @@ async def make_move(move: MoveRequest, background_tasks: BackgroundTasks):
                 else game["player2"] if result == "0-1" 
                 else "Draw"
             )
+            logger.info(f"Game {move.game_id} ended: {game['winner']}")
         
         if game["mode"] in ["pvai", "aivai"] and not game["game_over"]:
             if (game["mode"] == "pvai" and not board.turn) or game["mode"] == "aivai":
+                logger.info(f"Scheduling AI move for game {move.game_id}")
                 background_tasks.add_task(make_ai_move, move.game_id)
         
         return {"success": True, "state": await get_state(move.game_id)}
@@ -204,6 +213,7 @@ async def surrender_game(surrender: SurrenderRequest):
     game["game_over"] = True
     game["status"] = "finished"
     game["winner"] = game["player2"] if surrender.player == 1 else game["player1"]
+    logger.info(f"Game {surrender.game_id} surrendered: winner {game['winner']}")
     
     return {"success": True, "state": await get_state(surrender.game_id)}
 
@@ -217,6 +227,7 @@ async def configure_ai(game_id: str, config: AIConfig):
         raise HTTPException(status_code=400, detail="AI configuration only available in pvai or aivai modes")
     
     game["ai_config"] = config.dict()
+    logger.info(f"AI config updated for game {game_id}: {config}")
     return {"status": "AI configuration updated"}
 
 @app.get("/api/ai/models", response_model=dict)
@@ -225,6 +236,7 @@ async def get_ai_models():
     model_dir = "models"
     if os.path.exists(model_dir):
         models = [f for f in os.listdir(model_dir) if f.endswith(".h5")]
+    logger.debug(f"Available models: {models}")
     return {"models": models}
 
 @app.get("/api/games/active", response_model=List[GameInfo])
@@ -241,12 +253,16 @@ async def get_active_games():
                 "moves_count": len(game["moves"]),
                 "status": game["status"]
             })
+    logger.debug(f"Active games: {len(active)}")
     return active
 
 async def make_ai_move(game_id: str):
     game = games.get(game_id)
     if not game or game["game_over"]:
+        logger.info(f"AI move skipped: game {game_id} not found or already over")
         return
+    
+    logger.info(f"Starting AI move for game {game_id}, mode: {game['mode']}, turn: {'white' if game['board'].turn else 'black'}")
     
     game["ai_thinking"] = True
     
@@ -256,12 +272,14 @@ async def make_ai_move(game_id: str):
         
         from chess_ai import get_best_move
         
+        logger.debug(f"AI config: {config}")
         ai_move = await get_best_move(
             board,
             use_model=not config["use_stockfish"]
         )
         
         if ai_move and ai_move in board.legal_moves:
+            logger.info(f"AI move selected: {ai_move.uci()}")
             board.push(ai_move)
             game["moves"].append(ai_move.uci())
             
@@ -274,10 +292,14 @@ async def make_ai_move(game_id: str):
                     else game["player2"] if result == "0-1" 
                     else "Draw"
                 )
+                logger.info(f"Game {game_id} ended: {game['winner']}")
             
             if game["mode"] == "aivai" and not game["game_over"]:
+                logger.info(f"Scheduling next AI move for AIVAI mode")
                 await asyncio.sleep(1)
                 asyncio.create_task(make_ai_move(game_id))
+        else:
+            logger.warning(f"No valid AI move returned for game {game_id}")
     except Exception as e:
         logger.error(f"AI move failed in game {game_id}: {str(e)}")
     finally:

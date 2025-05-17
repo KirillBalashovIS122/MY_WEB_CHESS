@@ -5,7 +5,7 @@ const API_BASE_URL = process.env.NODE_ENV === 'development'
   ? 'http://localhost:8000' 
   : '/api';
 
-const PlayerInfo = ({ player, moves, playerNumber, gameId }) => {
+const PlayerInfo = ({ player, moves, playerNumber, gameId, gameMode }) => {
   const handleSurrender = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/game/surrender`, {
@@ -40,9 +40,11 @@ const PlayerInfo = ({ player, moves, playerNumber, gameId }) => {
           </li>
         ))}
       </ul>
-      <button className="surrender-button" onClick={handleSurrender}>
-        Сдаться
-      </button>
+      {playerNumber === 1 && gameMode !== 'aivai' && (
+        <button className="surrender-button" onClick={handleSurrender}>
+          Сдаться
+        </button>
+      )}
     </div>
   );
 };

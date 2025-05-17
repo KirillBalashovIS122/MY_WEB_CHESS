@@ -25,10 +25,14 @@ const App = () => {
         ...(mode === 'pvai' ? { 
           ai_config: {
             use_stockfish: aiModelOrPlayer2 === 'stockfish',
-            model: aiModelOrPlayer2 !== 'stockfish' ? aiModelOrPlayer2 : null
+            model: aiModelOrPlayer2 !== 'stockfish' ? aiModelOrPlayer2 : null,
+            depth: 3,
+            skill_level: 20
           }
         } : {})
       };
+
+      console.log('Sending start game request:', body);
 
       const response = await fetch(`${API_BASE_URL}/api/game/start`, {
         method: 'POST',
@@ -101,11 +105,23 @@ const App = () => {
           <div className="turn-indicator">
             Ход: {gameState.turn === 'white' ? 'Белые' : 'Чёрные'}
           </div>
-          <PlayerInfo player={players.player1} moves={gameState.moves} playerNumber={1} gameId={gameId} />
+          <PlayerInfo 
+            player={players.player1} 
+            moves={gameState.moves} 
+            playerNumber={1} 
+            gameId={gameId} 
+            gameMode={gameState.mode}
+          />
           <div className="board-container">
             <ChessBoard gameId={gameId} gameState={gameState} onMove={setGameState} />
           </div>
-          <PlayerInfo player={players.player2} moves={gameState.moves} playerNumber={2} gameId={gameId} />
+          <PlayerInfo 
+            player={players.player2} 
+            moves={gameState.moves} 
+            playerNumber={2} 
+            gameId={gameId} 
+            gameMode={gameState.mode}
+          />
           {gameState.game_over && (
             <GameOverModal
               winner={gameState.winner}

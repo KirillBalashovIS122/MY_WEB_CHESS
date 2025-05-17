@@ -36,7 +36,10 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
         })
       });
       
-      if (!response.ok) throw new Error('Move failed');
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Move failed');
+      }
       const data = await response.json();
       onMove(data.state);
       setSelectedSquare(null);
@@ -44,6 +47,7 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
       setPromotionMove(null);
     } catch (error) {
       console.error('Error making move:', error);
+      alert(error.message);
       setSelectedSquare(null);
       setPossibleMoves([]);
       setPromotionMove(null);
@@ -66,15 +70,29 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
   const onSquareClick = async (square) => {
     if (promotionMove) return;
 
+    if (gameState.game_over || gameState.ai_thinking || 
+        (gameState.mode === 'pvai' && gameState.turn === 'black')) {
+      return;
+    }
+
     if (!selectedSquare) {
+      const chess = new Chess(gameState.board);
+      const piece = chess.get(square);
+      if (!piece || (gameState.mode === 'pvai' && piece.color !== 'w')) {
+        return;
+      }
       try {
         const response = await fetch(`${API_BASE_URL}/api/game/select?game_id=${gameId}&square=${square}`);
-        if (!response.ok) throw new Error('Failed to select piece');
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || 'Failed to select piece');
+        }
         const data = await response.json();
         setSelectedSquare(square);
         setPossibleMoves(data.possible_moves);
       } catch (error) {
         console.error('Error selecting piece:', error);
+        alert(error.message);
       }
     } else {
       if (needPromotion(gameState.board, selectedSquare, square)) {
@@ -93,13 +111,17 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
           })
         });
         
-        if (!response.ok) throw new Error('Move failed');
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || 'Move failed');
+        }
         const data = await response.json();
         onMove(data.state);
         setSelectedSquare(null);
         setPossibleMoves([]);
       } catch (error) {
         console.error('Error making move:', error);
+        alert(error.message);
         setSelectedSquare(null);
         setPossibleMoves([]);
       }
@@ -138,6 +160,7 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
   return (
     <div className="chessboard-container">
       {promotionMove && <PromotionDialog />}
+      {gameState.ai_thinking && <div className="ai-thinking">ИИ думает...</div>}
       <Chessboard
         position={gameState?.board || 'start'}
         onSquareClick={onSquareClick}
