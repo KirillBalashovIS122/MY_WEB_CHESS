@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
+import '../styles.css';
 
 const API_BASE_URL = process.env.NODE_ENV === 'development' 
   ? 'http://localhost:8000' 
@@ -13,11 +14,7 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
 
   const needPromotion = (fen, from, to) => {
     const chess = new Chess(fen);
-    const move = {
-      from,
-      to,
-      promotion: 'q'
-    };
+    const move = { from, to, promotion: 'q' };
     return chess.moves(move).some(m => m.includes('='));
   };
 
@@ -38,7 +35,7 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
       
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Move failed');
+        throw new Error(error.detail || 'Не удалось сделать ход');
       }
       const data = await response.json();
       onMove(data.state);
@@ -46,7 +43,7 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
       setPossibleMoves([]);
       setPromotionMove(null);
     } catch (error) {
-      console.error('Error making move:', error);
+      console.error('Ошибка при выполнении хода:', error);
       alert(error.message);
       setSelectedSquare(null);
       setPossibleMoves([]);
@@ -75,23 +72,28 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
       return;
     }
 
+    const chess = new Chess(gameState.board);
+    const piece = chess.get(square);
+
     if (!selectedSquare) {
-      const chess = new Chess(gameState.board);
-      const piece = chess.get(square);
       if (!piece || (gameState.mode === 'pvai' && piece.color !== 'w')) {
-        return;
+        return; // Игнорируем пустые клетки или фигуры черных в PvAI
       }
       try {
         const response = await fetch(`${API_BASE_URL}/api/game/select?game_id=${gameId}&square=${square}`);
         if (!response.ok) {
           const error = await response.json();
-          throw new Error(error.detail || 'Failed to select piece');
+          throw new Error(error.detail || 'Не удалось выбрать фигуру');
         }
         const data = await response.json();
+        if (data.possible_moves.length === 0) {
+          alert('Нет доступных ходов для этой фигуры');
+          return;
+        }
         setSelectedSquare(square);
         setPossibleMoves(data.possible_moves);
       } catch (error) {
-        console.error('Error selecting piece:', error);
+        console.error('Ошибка при выборе фигуры:', error);
         alert(error.message);
       }
     } else {
@@ -113,14 +115,14 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
         
         if (!response.ok) {
           const error = await response.json();
-          throw new Error(error.detail || 'Move failed');
+          throw new Error(error.detail || 'Недопустимый ход');
         }
         const data = await response.json();
         onMove(data.state);
         setSelectedSquare(null);
         setPossibleMoves([]);
       } catch (error) {
-        console.error('Error making move:', error);
+        console.error('Ошибка при выполнении хода:', error);
         alert(error.message);
         setSelectedSquare(null);
         setPossibleMoves([]);

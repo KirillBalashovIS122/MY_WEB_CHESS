@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import '../styles.css';
 
 const API_BASE_URL = process.env.NODE_ENV === 'development' 
@@ -8,73 +8,95 @@ const API_BASE_URL = process.env.NODE_ENV === 'development'
 const PlayerNameModal = ({ mode, onSubmit }) => {
   const [player1, setPlayer1] = useState('');
   const [player2, setPlayer2] = useState('');
-  const [selectedModel, setSelectedModel] = useState('stockfish');
-  const [availableModels, setAvailableModels] = useState(['stockfish']);
-
-  useEffect(() => {
-    const fetchModels = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/ai/models`);
-        if (response.ok) {
-          const data = await response.json();
-          setAvailableModels(['stockfish', ...data.models]);
-        }
-      } catch (error) {
-        console.error('Error fetching models:', error);
-      }
-    };
-    
-    if (mode === 'pvai') fetchModels();
-  }, [mode]);
+  const [selectedDifficulty, setSelectedDifficulty] = useState('light');
 
   const handleSubmit = () => {
-    if (mode === 'pvai') {
-      onSubmit(player1, selectedModel);
-    } else {
-      onSubmit(player1, player2);
+    const aiName = {
+      light: 'custom_light',
+      medium: 'custom_medium',
+      heavy: 'stockfish'
+    }[selectedDifficulty];
+    
+    const gameConfig = {
+      mode,
+      player1: mode === 'pvp' ? player1 : (mode === 'pvai' ? player1 : 'ИИ Белые'),
+      player2: mode === 'pvp' ? player2 : (mode === 'pvai' ? 'ИИ' : 'ИИ Чёрные'),
+      ai_name: mode !== 'pvp' ? aiName : undefined
+    };
+
+    console.log('Отправка конфигурации игры:', gameConfig); // Логирование для отладки
+    
+    if (mode === 'pvp' && (!player1.trim() || !player2.trim())) {
+      alert('Введите имена обоих игроков');
+      return;
     }
+    if (mode === 'pvai' && !player1.trim()) {
+      alert('Введите ваше имя');
+      return;
+    }
+    
+    onSubmit(gameConfig);
   };
 
   return (
     <div className="modal">
       <div className="modal-content">
         <h2>Настройка игры</h2>
-        <input
-          type="text"
-          placeholder="Ваше имя"
-          value={player1}
-          onChange={(e) => setPlayer1(e.target.value)}
-          required
-        />
-        
         {mode === 'pvp' && (
-          <input
-            type="text"
-            placeholder="Игрок 2"
-            value={player2}
-            onChange={(e) => setPlayer2(e.target.value)}
-          />
+          <>
+            <input
+              type="text"
+              placeholder="Игрок 1"
+              value={player1}
+              onChange={(e) => setPlayer1(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="Игрок 2"
+              value={player2}
+              onChange={(e) => setPlayer2(e.target.value)}
+            />
+          </>
         )}
-
-        {mode === 'pvai' && (
-          <div className="model-selector">
-            <h3>Выберите модель ИИ:</h3>
-            <div className="model-buttons">
-              {availableModels.map(model => (
+        {mode !== 'pvp' && (
+          <>
+            {mode === 'pvai' && (
+              <input
+                type="text"
+                placeholder="Ваше имя"
+                value={player1}
+                onChange={(e) => setPlayer1(e.target.value)}
+              />
+            )}
+            <div className="difficulty-selector">
+              <h3>Выберите сложность:</h3>
+              <div className="difficulty-buttons">
                 <button
-                  key={model}
                   type="button"
-                  onClick={() => setSelectedModel(model)}
-                  className={selectedModel === model ? 'selected' : ''}
+                  onClick={() => setSelectedDifficulty('light')}
+                  className={selectedDifficulty === 'light' ? 'selected' : ''}
                 >
-                  {model.replace('.h5', '')}
+                  Легкий
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => setSelectedDifficulty('medium')}
+                  className={selectedDifficulty === 'medium' ? 'selected' : ''}
+                >
+                  Средний
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDifficulty('heavy')}
+                  className={selectedDifficulty === 'heavy' ? 'selected' : ''}
+                >
+                  Тяжелый
+                </button>
+              </div>
             </div>
-          </div>
+          </>
         )}
-
-        <button onClick={handleSubmit} disabled={!player1.trim()}>
+        <button onClick={handleSubmit} disabled={(mode === 'pvai' && !player1.trim()) || (mode === 'pvp' && (!player1.trim() || !player2.trim()))}>
           Начать игру
         </button>
       </div>

@@ -16,28 +16,12 @@ const App = () => {
   const [players, setPlayers] = useState({ player1: '', player2: '' });
   const [gameState, setGameState] = useState(null);
 
-  const startGame = async (player1, aiModelOrPlayer2) => {
+  const startGame = async (config) => {
     try {
-      const body = {
-        mode: mode,
-        player1: player1,
-        ...(mode === 'pvp' ? { player2: aiModelOrPlayer2 } : {}),
-        ...(mode === 'pvai' ? { 
-          ai_config: {
-            use_stockfish: aiModelOrPlayer2 === 'stockfish',
-            model: aiModelOrPlayer2 !== 'stockfish' ? aiModelOrPlayer2 : null,
-            depth: 3,
-            skill_level: 20
-          }
-        } : {})
-      };
-
-      console.log('Sending start game request:', body);
-
       const response = await fetch(`${API_BASE_URL}/api/game/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify(config)
       });
       
       if (!response.ok) {
@@ -48,13 +32,13 @@ const App = () => {
       const data = await response.json();
       setGameId(data.game_id);
       setPlayers({ 
-        player1, 
-        player2: mode === 'pvp' ? aiModelOrPlayer2 : 'AI' 
+        player1: config.player1, 
+        player2: config.player2 
       });
       setGameState(null);
     } catch (error) {
       alert(error.message);
-      console.error('Error starting game:', error);
+      console.error('Ошибка при запуске игры:', error);
     }
   };
 
@@ -69,14 +53,14 @@ const App = () => {
           }
           const data = await response.json();
           setGameState(data);
-          console.log('Game state updated:', data);
+          console.log('Состояние игры обновлено:', data);
         } catch (error) {
-          console.error('Error fetching game state:', error);
+          console.error('Ошибка при получении состояния игры:', error);
         }
       };
       
       fetchState();
-      const interval = setInterval(fetchState, 1000);
+      const interval = setInterval(fetchState, 3000); // Изменено на 3 секунды
       return () => clearInterval(interval);
     }
   }, [gameId]);
@@ -131,7 +115,7 @@ const App = () => {
           )}
         </>
       ) : (
-        <div>Loading game...</div>
+        <div>Загрузка игры...</div>
       )}
     </div>
   );

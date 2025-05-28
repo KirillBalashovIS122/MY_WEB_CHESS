@@ -2,12 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && \
-    apt-get install -y stockfish && \
-    ln -s /usr/games/stockfish /usr/bin/stockfish && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    stockfish \
+    build-essential \
+    && ln -s /usr/games/stockfish /usr/bin/stockfish \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /app/models && chmod -R a+rwX /app/models
 
 COPY requirements.txt .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .

@@ -3,7 +3,6 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    image: my-web-chess-backend
     ports:
       - "8000:8000"
     environment:
@@ -15,7 +14,6 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
-    image: my-web-chess-frontend
     ports:
       - "3000:3000"
     environment:
