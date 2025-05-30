@@ -24,9 +24,12 @@ def make_move(board: chess.Board, move: str):
         move_obj = chess.Move.from_uci(move)
         if move_obj in board.legal_moves:
             board.push(move_obj)
+            print(f"Move {move} applied successfully. New board state: {board.fen()}")  # Добавлено для отладки
             return True
+        print(f"Move {move} is not legal.")  # Добавлено для отладки
         return False
-    except ValueError:
+    except ValueError as e:
+        print(f"Invalid move {move}: {str(e)}")  # Добавлено для отладки
         return False
 
 def get_game_result(board: chess.Board):

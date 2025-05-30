@@ -13,7 +13,7 @@ const PlayerNameModal = ({ mode, onSubmit }) => {
   const handleSubmit = () => {
     const aiName = {
       light: 'custom_light',
-      medium: 'custom_medium',
+      medium: 'numfish',
       heavy: 'stockfish'
     }[selectedDifficulty];
     
@@ -24,7 +24,7 @@ const PlayerNameModal = ({ mode, onSubmit }) => {
       ai_name: mode !== 'pvp' ? aiName : undefined
     };
 
-    console.log('Отправка конфигурации игры:', gameConfig); // Логирование для отладки
+    console.log('Отправка конфигурации игры:', gameConfig);
     
     if (mode === 'pvp' && (!player1.trim() || !player2.trim())) {
       alert('Введите имена обоих игроков');

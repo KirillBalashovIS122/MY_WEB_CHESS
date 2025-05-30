@@ -1,25 +1,35 @@
 import logging
-import os
 import chess
 import chess.engine
 import numpy as np
 import tensorflow as tf
+from tensorflow import keras
 from typing import Optional
-from ais import available_ais
 import random
+import os.path
 
 logger = logging.getLogger(__name__)
 
 custom_light_model = None
 
-def load_custom_light_model():
-    global custom_light_model
-    if custom_light_model is None:
-        from tensorflow import keras
-        logger.debug("Загрузка модели custom_light при старте")
-        model = keras.models.load_model("models/light_model.keras")
-        custom_light_model = ChessAIModel(model)
-    return custom_light_model
+available_ais = {
+    "stockfish": {
+        "type": "uci",
+        "path": "/usr/games/stockfish",
+        "depth": 3,
+        "skill_level": 20
+    },
+    "numfish": {
+        "type": "uci",
+        "command": ["python3", "/app/backend/engines/numbfish/numbfish.py"],
+        "depth": 3,
+        "skill_level": 20
+    },
+    "custom_light": {
+        "type": "keras",
+        "path": "custom_light"
+    }
+}
 
 class ChessAIModel:
     def __init__(self, model):
@@ -29,9 +39,32 @@ class ChessAIModel:
     def predict(self, input_data):
         return self.model(input_data, training=False)
 
+def load_custom_light_model():
+    global custom_light_model
+    if custom_light_model is None:
+        model_path = os.path.join('/app/backend/models', 'light_model.keras')
+        logger.info(f"Loading model from: {model_path}")
+        if not os.path.exists(model_path):
+            logger.error(f"Model file not found at: {model_path}")
+            return None
+        try:
+            model = keras.models.load_model(model_path)
+            custom_light_model = ChessAIModel(model)
+            logger.info("Model loaded successfully")
+            test_model()
+        except Exception as e:
+            logger.error(f"Error loading model: {str(e)}")
+    return custom_light_model
+
+def test_model():
+    model = load_custom_light_model()
+    if model:
+        test_input = np.random.rand(1, 8, 8, 14).astype(np.float32)
+        prediction = model.predict(test_input)
+        logger.info(f"Model test prediction: {prediction}")
+
 def board_to_input(board: chess.Board, ai_name: str) -> np.ndarray:
     tensor = np.zeros((1, 8, 8, 14), dtype=np.float32)
-    
     piece_map = {
         chess.PAWN: {chess.WHITE: 0, chess.BLACK: 6},
         chess.KNIGHT: {chess.WHITE: 1, chess.BLACK: 7},
@@ -40,7 +73,6 @@ def board_to_input(board: chess.Board, ai_name: str) -> np.ndarray:
         chess.QUEEN: {chess.WHITE: 4, chess.BLACK: 10},
         chess.KING: {chess.WHITE: 5, chess.BLACK: 11}
     }
-    
     for square in chess.SQUARES:
         piece = board.piece_at(square)
         if piece:
@@ -48,20 +80,17 @@ def board_to_input(board: chess.Board, ai_name: str) -> np.ndarray:
             col = square % 8
             layer = piece_map[piece.piece_type][piece.color]
             tensor[0, row, col, layer] = 1
-    
     tensor[0, :, :, 12] = int(board.turn)
     tensor[0, :, :, 13] = board.ply() / 2
-    
-    logger.debug(f"Входной тензор для {ai_name}: shape={tensor.shape}")
-    logger.debug(f"Пример значений тензора: {tensor[0, :, :, 0]} (пешки белых)")
+    logger.debug(f"Input tensor for {ai_name}: shape={tensor.shape}")
+    logger.debug(f"Example tensor values: {tensor[0, :, :, 0]} (white pawns)")
     return tensor
 
 def predictions_to_move(predictions, board: chess.Board, ai_name: str) -> Optional[chess.Move]:
     legal_moves = list(board.legal_moves)
     if not legal_moves:
-        logger.warning("Нет допустимых ходов")
+        logger.warning("No legal moves available")
         return None
-
     if ai_name == "custom_light":
         if isinstance(predictions, (list, tuple)) and len(predictions) == 2:
             from_probs, to_probs = predictions
@@ -74,64 +103,83 @@ def predictions_to_move(predictions, board: chess.Board, ai_name: str) -> Option
                 if score > 0:
                     move_scores[move] = score
             if not move_scores:
-                logger.warning("Все вероятности нулевые, выбираем случайный ход")
+                logger.warning("All probabilities zero, selecting random move")
                 return random.choice(legal_moves)
             best_move = max(move_scores.items(), key=lambda x: x[1])[0]
-            logger.debug(f"Лучший ход: {best_move.uci()} (score: {move_scores[best_move]:.4f})")
+            logger.debug(f"Best move: {best_move.uci()} (score: {move_scores[best_move]:.4f})")
             return best_move
         else:
-            logger.error(f"Неверный формат предсказаний: {type(predictions)}")
+            logger.error(f"Invalid predictions format: {type(predictions)}")
             return random.choice(legal_moves)
     return None
 
 async def get_best_move(board: chess.Board, ai_name: str, depth: int = 3, skill_level: int = 20) -> Optional[chess.Move]:
-    logger.debug(f"Запрос лучшего хода для ИИ: {ai_name}")
+    logger.debug(f"Requesting best move for AI: {ai_name}")
     ai_info = available_ais.get(ai_name)
     if not ai_info:
-        logger.error(f"ИИ {ai_name} не найден")
+        logger.error(f"AI {ai_name} not found")
         return None
-
     try:
         if ai_info["type"] == "uci":
             return await get_best_move_uci(board, ai_info, depth, skill_level)
         elif ai_info["type"] == "keras":
             return get_best_move_keras(board, ai_info)
     except Exception as e:
-        logger.error(f"Ошибка ИИ {ai_name}: {str(e)}")
+        logger.error(f"AI error {ai_name}: {str(e)}")
         return None
 
 async def get_best_move_uci(board: chess.Board, ai_info: dict, depth: int, skill_level: int) -> Optional[chess.Move]:
+    command = ai_info.get("command") or ai_info.get("path")
+    if not command:
+        logger.error(f"No command or path for AI: {ai_info}")
+        return None
+    logger.debug(f"Starting UCI engine with command: {command}")
+    logger.debug(f"Sending position to UCI engine: FEN={board.fen()}")
+    if isinstance(command, list) and command[0] == "python3":
+        script_path = command[1]
+        if not os.path.exists(script_path):
+            logger.error(f"Script file not found: {script_path}")
+            return None
+        logger.info(f"Confirmed script file exists: {script_path}")
     try:
-        logger.debug(f"Запуск UCI-движка: {ai_info['path']}")
-        transport, engine = await chess.engine.popen_uci(ai_info["path"])
-        
-        if ai_info["path"].endswith("stockfish"):
+        transport, engine = await chess.engine.popen_uci(command)
+        if ai_info.get("path", "").endswith("stockfish"):
             await engine.configure({"Skill Level": skill_level})
-        
         result = await engine.play(
             board,
             chess.engine.Limit(depth=depth),
             info=chess.engine.INFO_ALL
         )
-        
+        move = result.move
         await engine.quit()
-        
-        if result and result.move:
-            logger.info(f"ИИ вернул ход: {result.move.uci()}")
-            return result.move
+        if move and move in board.legal_moves:
+            logger.info(f"AI returned move: {move.uci()}")
+            return move
         else:
-            logger.warning("ИИ не вернул допустимый ход")
+            logger.error(f"Illegal move returned by AI: {move.uci() if move else 'None'} in position {board.fen()}")
             return None
-    except Exception as e:
-        logger.error(f"Ошибка UCI-движка: {str(e)}")
+    except chess.engine.EngineError as e:
+        logger.error(f"UCI engine error: {str(e)}")
         return None
+    except Exception as e:
+        logger.error(f"Unexpected UCI engine error: {str(e)}")
+        return None
+    finally:
+        try:
+            if 'engine' in locals():
+                await engine.quit()
+        except Exception as e:
+            logger.error(f"Error closing UCI engine: {str(e)}")
 
 def get_best_move_keras(board: chess.Board, ai_info: dict) -> Optional[chess.Move]:
     try:
         model = load_custom_light_model()
+        if not model:
+            logger.error("Keras model not loaded")
+            return None
         input_data = board_to_input(board, ai_info["path"])
         predictions = model.predict(input_data)
         return predictions_to_move(predictions, board, "custom_light")
     except Exception as e:
-        logger.error(f"Ошибка Keras модели: {str(e)}")
+        logger.error(f"Keras model error: {str(e)}")
         return None

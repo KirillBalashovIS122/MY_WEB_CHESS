@@ -52,15 +52,20 @@ const App = () => {
             throw new Error(error.detail || "Ошибка сервера");
           }
           const data = await response.json();
-          setGameState(data);
-          console.log('Состояние игры обновлено:', data);
+          console.log('Получено состояние игры:', data);
+          setGameState(prevState => {
+            if (prevState?.board !== data.board) {
+              console.log('Обновлено состояние доски:', data.board);
+            }
+            return data;
+          });
         } catch (error) {
           console.error('Ошибка при получении состояния игры:', error);
         }
       };
       
       fetchState();
-      const interval = setInterval(fetchState, 3000); // Изменено на 3 секунды
+      const interval = setInterval(fetchState, 1000);
       return () => clearInterval(interval);
     }
   }, [gameId]);

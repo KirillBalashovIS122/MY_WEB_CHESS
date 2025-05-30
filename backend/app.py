@@ -10,15 +10,21 @@ import uuid
 from datetime import datetime
 from ais import available_ais
 from chess_ai import get_best_move, load_custom_light_model
+from chess_engine import create_board, is_game_over, get_legal_moves, make_move, get_game_result
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+origins = [
+    "http://localhost:3000",
+    "http://frontend:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,7 +86,7 @@ async def start_game(config: GameConfig):
     game_id = str(uuid.uuid4())
     
     games[game_id] = {
-        "board": chess.Board(),
+        "board": create_board(),
         "mode": config.mode,
         "player1": config.player1,
         "player2": player2,
@@ -108,6 +114,7 @@ async def get_state(game_id: str):
         raise HTTPException(status_code=404, detail="Игра не найдена")
     
     board = game["board"]
+    logger.debug(f"Returning board state for game {game_id}: {board.fen()}")
     return GameState(
         game_id=game_id,
         board=board.fen(),
@@ -128,19 +135,12 @@ async def select_piece(game_id: str, square: str):
         raise HTTPException(status_code=404, detail="Игра не найдена")
     
     board = game["board"]
-    try:
-        square = chess.parse_square(square)
-        possible_moves = [
-            move.uci() for move in board.legal_moves
-            if move.from_square == square
-        ]
-        logger.debug(f"Выбрана клетка {square} в игре {game_id}, возможные ходы: {possible_moves}")
-        return {"possible_moves": possible_moves}
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Недопустимая клетка")
+    possible_moves = get_legal_moves(board, square)
+    logger.debug(f"Выбрана клетка {square} в игре {game_id}, возможные ходы: {possible_moves}")
+    return {"possible_moves": possible_moves}
 
 @app.post("/api/game/move")
-async def make_move(move: MoveRequest, background_tasks: BackgroundTasks):
+async def make_move_endpoint(move: MoveRequest, background_tasks: BackgroundTasks):
     game = games.get(move.game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Игра не найдена")
@@ -154,26 +154,19 @@ async def make_move(move: MoveRequest, background_tasks: BackgroundTasks):
             game["status"] = "игра"
         
         uci_move = f"{move.from_square}{move.to_square}"
-        move_obj = chess.Move.from_uci(uci_move)
-        
-        if (move_obj.to_square // 8 == 7 and board.piece_at(move_obj.from_square).piece_type == chess.PAWN and board.turn) or \
-           (move_obj.to_square // 8 == 0 and board.piece_at(move_obj.from_square).piece_type == chess.PAWN and not board.turn):
-            if not move.promotion:
-                raise HTTPException(status_code=400, detail="Требуется выбор фигуры для превращения")
+        if move.promotion:
             uci_move += move.promotion.lower()
-            move_obj = chess.Move.from_uci(uci_move)
         
-        if move_obj not in board.legal_moves:
+        if not make_move(board, uci_move):
             raise HTTPException(status_code=400, detail="Недопустимый ход")
         
-        board.push(move_obj)
-        game["moves"].append(move_obj.uci())
-        logger.info(f"Ход {move_obj.uci()} сделан в игре {move.game_id}")
+        game["moves"].append(uci_move)
+        logger.info(f"Ход {uci_move} сделан в игре {move.game_id}, новое состояние: {board.fen()}")
         
-        if board.is_game_over():
+        if is_game_over(board):
             game["game_over"] = True
             game["status"] = "завершена"
-            result = board.result()
+            result = get_game_result(board)
             game["winner"] = (
                 game["player1"] if result == "1-0" 
                 else game["player2"] if result == "0-1" 
@@ -189,8 +182,6 @@ async def make_move(move: MoveRequest, background_tasks: BackgroundTasks):
         return {"success": True, "state": await get_state(move.game_id)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Недопустимый ход: {str(e)}")
-    except AttributeError:
-        raise HTTPException(status_code=400, detail="На начальной клетке нет фигуры")
 
 @app.post("/api/game/surrender")
 async def surrender_game(surrender: SurrenderRequest):
@@ -249,18 +240,19 @@ async def make_ai_move(game_id: str):
             board,
             ai_name,
             depth=3 if ai_name == "stockfish" else 1,
-            skill_level=20 if ai_name == "stockfish" else 0
+            skill_level=1 if ai_name == "stockfish" else 1
         )
         
         if ai_move and ai_move in board.legal_moves:
             logger.info(f"Выбран ход ИИ: {ai_move.uci()}")
             board.push(ai_move)
             game["moves"].append(ai_move.uci())
+            logger.debug(f"Состояние доски после хода ИИ: {board.fen()}")
             
-            if board.is_game_over():
+            if is_game_over(board):
                 game["game_over"] = True
                 game["status"] = "завершена"
-                result = board.result()
+                result = get_game_result(board)
                 game["winner"] = (
                     game["player1"] if result == "1-0" 
                     else game["player2"] if result == "0-1" 
@@ -281,12 +273,30 @@ async def make_ai_move(game_id: str):
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Запуск API шахматного веб-приложения")
+    logger.info("Запуск API шахматного приложения")
+    logger.info(f"Current working directory: {os.getcwd()}")
+    logger.info(f"Files in directory: {os.listdir()}")
+    if os.path.exists("engines/numbfish"):
+        logger.info(f"Files in engines: {os.listdir('engines/numbfish')}")
     os.makedirs("models", exist_ok=True)
     load_custom_light_model()
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    logger.info("Остановка API шахматного веб-приложения")
+    logger.info("Остановка приложения")
     for task in ai_tasks.values():
         task.cancel()
+
+@app.get("/test-engines")
+async def test_engines():
+    import time
+    board = chess.Board()
+    results = {}
+    for ai_name in available_ais:
+        start = time.time()
+        move = await get_best_move(board.copy(), ai_name)
+        results[ai_name] = {
+            "move": move.uci() if move else None,
+            "time": time.time() - start
+        }
+    return results

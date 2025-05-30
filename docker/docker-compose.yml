@@ -7,8 +7,8 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
-    volumes:
-      - ../backend/models:/app/models
+    networks:
+      - chess-network
 
   frontend:
     build:
@@ -18,8 +18,11 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=development
-    volumes:
-      - ../frontend:/app
-      - /app/node_modules
     depends_on:
       - backend
+    networks:
+      - chess-network
+
+networks:
+  chess-network:
+    driver: bridge
