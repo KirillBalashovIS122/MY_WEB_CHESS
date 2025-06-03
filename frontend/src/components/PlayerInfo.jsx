@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import '../styles.css';
 
 const API_BASE_URL = process.env.NODE_ENV === 'development' 
   ? 'http://localhost:8000' 
   : '/api';
 
-const PlayerInfo = ({ player, moves, playerNumber, gameId, gameMode, capturedPieces }) => {
+const PlayerInfo = ({ player, moves, playerNumber, gameId, gameMode, capturedPieces, opponentCapturedPieces }) => {
   const handleSurrender = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/game/surrender`, {
@@ -37,17 +38,24 @@ const PlayerInfo = ({ player, moves, playerNumber, gameId, gameMode, capturedPie
     'P': 1, 'N': 3, 'B': 3, 'R': 5, 'Q': 9
   };
 
-  const capturedValue = capturedPieces.reduce(
-    (sum, piece) => sum + (pieceValues[piece] || 0), 0
-  );
+  // Рассчитываем общий перевес (не отрицательный)
+  const materialAdvantage = useMemo(() => {
+    const capturedValue = capturedPieces.reduce(
+      (sum, piece) => sum + (pieceValues[piece] || 0), 0
+    );
+    const opponentCapturedValue = opponentCapturedPieces.reduce(
+      (sum, piece) => sum + (pieceValues[piece] || 0), 0
+    );
+    return Math.max(0, capturedValue - opponentCapturedValue);
+  }, [capturedPieces, opponentCapturedPieces]);
 
   const renderCapturedPieces = () => {
     return capturedPieces.map((piece, index) => (
       <span key={index} className="captured-piece">
         <span className={`piece-${piece}`}>
+          {piece}
           {pieceImages[piece]}
         </span>
-        <span className="piece-value">+{pieceValues[piece]}</span>
       </span>
     ));
   };
@@ -63,7 +71,7 @@ const PlayerInfo = ({ player, moves, playerNumber, gameId, gameMode, capturedPie
   return (
     <div className={`player-info player-${playerNumber}`}>
       <div className="player-header">
-        <h3>{player} ({capturedValue})</h3>
+        <h3>{player} ({materialAdvantage > 0 ? `+${materialAdvantage}` : materialAdvantage})</h3>
       </div>
       
       <div className="captured-pieces">

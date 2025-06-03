@@ -41,7 +41,7 @@ const App = () => {
       setGameState(null);
       setGameScore("0 - 0");
       setLastConfig(config);
-      setPlayerScores({ player1: 0, player2: 0, draws: 0 });
+      setPlayerScores({ player1: 0, player2: 0, draws: 0 }); // Сброс счёта только при новой сессии
     } catch (error) {
       alert(error.message);
     }
@@ -92,7 +92,7 @@ const App = () => {
 
   const handleRestart = () => {
     if (lastConfig) {
-      startGame(lastConfig);
+      startGame(lastConfig); // Счёт не сбрасывается, сохраняется через game_scores
     }
   };
 
@@ -112,7 +112,7 @@ const App = () => {
     setMode(null);
     setGameId(null);
     setGameState(null);
-    setPlayerScores({ player1: 0, player2: 0, draws: 0 });
+    setPlayerScores({ player1: 0, player2: 0, draws: 0 }); // Сброс счёта при выходе
   };
 
   if (!mode) {
@@ -146,6 +146,7 @@ const App = () => {
           gameId={gameId} 
           gameMode={mode}
           capturedPieces={gameState?.captured_by_player1 || []}
+          opponentCapturedPieces={gameState?.captured_by_player2 || []}
         />
         
         <div className="board-container">
@@ -166,6 +167,7 @@ const App = () => {
           gameId={gameId} 
           gameMode={mode}
           capturedPieces={gameState?.captured_by_player2 || []}
+          opponentCapturedPieces={gameState?.captured_by_player1 || []}
         />
       </div>
 

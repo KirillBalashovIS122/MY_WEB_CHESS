@@ -12,7 +12,7 @@ const PlayerNameModal = ({ mode, onSubmit }) => {
       medium: 'numfish',
       heavy: 'stockfish'
     };
-    
+
     const config = {
       mode,
       player1: mode === 'pvp' ? player1 : (mode === 'pvai' ? player1 : 'ИИ Белые'),
@@ -20,7 +20,7 @@ const PlayerNameModal = ({ mode, onSubmit }) => {
       ai_white: mode === 'aivai' ? aiMap[aiWhite] : null,
       ai_black: mode !== 'pvp' ? aiMap[aiBlack] : null
     };
-    
+
     onSubmit(config);
   };
 
@@ -28,7 +28,7 @@ const PlayerNameModal = ({ mode, onSubmit }) => {
     <div className="modal">
       <div className="modal-content">
         <h2>Настройка игры</h2>
-        
+
         {mode === 'pvp' && (
           <>
             <input
@@ -45,7 +45,7 @@ const PlayerNameModal = ({ mode, onSubmit }) => {
             />
           </>
         )}
-        
+
         {mode === 'pvai' && (
           <input
             type="text"
@@ -54,7 +54,7 @@ const PlayerNameModal = ({ mode, onSubmit }) => {
             onChange={(e) => setPlayer1(e.target.value)}
           />
         )}
-        
+
         {mode !== 'pvp' && (
           <div className="ai-selection">
             {mode === 'aivai' && (
@@ -67,7 +67,7 @@ const PlayerNameModal = ({ mode, onSubmit }) => {
                 </select>
               </div>
             )}
-            
+
             <div className="ai-option">
               <h3>ИИ за чёрных:</h3>
               <select value={aiBlack} onChange={(e) => setAiBlack(e.target.value)}>
@@ -78,11 +78,11 @@ const PlayerNameModal = ({ mode, onSubmit }) => {
             </div>
           </div>
         )}
-        
-        <button 
-          onClick={handleSubmit} 
+
+        <button
+          onClick={handleSubmit}
           disabled={
-            (mode === 'pvai' && !player1.trim()) || 
+            (mode === 'pvai' && !player1.trim()) ||
             (mode === 'pvp' && (!player1.trim() || !player2.trim()))
           }
         >
