@@ -1,17 +1,19 @@
 import logging
+import asyncio
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import chess
-import asyncio
 from typing import Dict, Optional, List
 import uuid
 from datetime import datetime
 from chess_ai import get_best_move, available_ais
 from chess_engine import create_board, is_game_over, get_legal_moves, make_move, get_game_result
 
+# Configure logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)  # Changed from DEBUG to INFO
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)  # Suppress Uvicorn access logs below WARNING
 
 app = FastAPI()
 
@@ -124,7 +126,7 @@ async def start_game(config: GameConfig):
     
     if config.mode == "aivai":
         games[game_id]["status"] = "game"
-        logger.debug(f"Starting AI vs AI game {game_id} with {config.ai_white} vs {config.ai_black}")
+        logger.info(f"Starting AI vs AI game {game_id} with {config.ai_white} vs {config.ai_black}")
         ai_tasks[game_id] = asyncio.create_task(make_ai_move(game_id))
     
     logger.info(f"Игра {game_id} начата: {config.mode}, player1={config.player1}, player2={player2}")
@@ -167,7 +169,7 @@ async def select_square(game_id: str, square: str):
     board = game["board"]
     legal_moves = get_legal_moves(board, square)
     valid_moves = [move.uci() for move in legal_moves]
-    logger.debug(f"Legal moves for square {square} in game {game_id}: {valid_moves}")
+    logger.info(f"Legal moves for square {square} in game {game_id}: {valid_moves}")
     
     return {"game_id": game_id, "square": square, "legal_moves": valid_moves}
 
@@ -185,7 +187,7 @@ async def make_move_endpoint(move: MoveRequest, background_tasks: BackgroundTask
     
     if game["status"] == "ожидание":
         game["status"] = "game"
-        logger.debug(f"Game {move.game_id} status changed to 'game'")
+        logger.info(f"Game {move.game_id} status changed to 'game'")
     
     uci_move = move.from_square + move.to_square
     if move.promotion:
@@ -201,6 +203,7 @@ async def make_move_endpoint(move: MoveRequest, background_tasks: BackgroundTask
                 logger.error(f"Promotion piece not specified for move {uci_move}")
                 raise HTTPException(status_code=400, detail="Не указана фигура для превращения")
     
+    current_turn = board.turn  # Store the current turn before making the move
     success, captured_piece = make_move(board, uci_move)
     if not success:
         logger.error(f"Invalid move {uci_move} in game {move.game_id}")
@@ -208,11 +211,11 @@ async def make_move_endpoint(move: MoveRequest, background_tasks: BackgroundTask
     
     if captured_piece:
         piece_symbol = captured_piece.symbol()
-        if board.turn == chess.WHITE:
+        if current_turn == chess.WHITE:
             game["captured_by_player1"].append(piece_symbol)
         else:
             game["captured_by_player2"].append(piece_symbol)
-        logger.debug(f"Captured piece {piece_symbol} in game {move.game_id}")
+        logger.info(f"Captured piece {piece_symbol} in game {move.game_id}")
     
     game["moves"].append(uci_move)
     
@@ -246,14 +249,14 @@ async def make_move_endpoint(move: MoveRequest, background_tasks: BackgroundTask
                 score[game["player1"]]["draws"] += 1
                 score[game["player2"]]["draws"] += 1
             game["scores_updated"] = True
-            logger.debug(f"Scores updated for game {move.game_id}: {score}")
+            logger.info(f"Scores updated for game {move.game_id}: {score}")
     
     if not game["game_over"]:
         if game["mode"] == "pvai" and not board.turn:
-            logger.debug(f"Scheduling AI move for black in game {move.game_id}")
+            logger.info(f"Scheduling AI move for black in game {move.game_id}")
             background_tasks.add_task(make_ai_move, move.game_id)
         elif game["mode"] == "aivai":
-            logger.debug(f"Scheduling AI move for {'white' if board.turn else 'black'} in game {move.game_id}")
+            logger.info(f"Scheduling AI move for {'white' if board.turn else 'black'} in game {move.game_id}")
             background_tasks.add_task(make_ai_move, move.game_id)
     
     return {"success": True, "state": await get_state(move.game_id)}
@@ -290,7 +293,7 @@ async def surrender_game(surrender: SurrenderRequest):
             score[game["player2"]]["wins"] += 1
             score[game["player1"]]["losses"] += 1
         game["scores_updated"] = True
-        logger.debug(f"Scores updated for game {surrender.game_id}: {score}")
+        logger.info(f"Scores updated for game {surrender.game_id}: {score}")
     
     return {"success": True, "state": await get_state(surrender.game_id)}
 
@@ -309,7 +312,7 @@ async def stop_game(game_id: str):
     if task:
         task.cancel()
         del ai_tasks[game_id]
-        logger.debug(f"AI task for game {game_id} canceled")
+        logger.info(f"AI task for game {game_id} canceled")
     
     del games[game_id]
     logger.info(f"Game {game_id} stopped")
@@ -328,7 +331,7 @@ async def get_game_score(game_id: str):
         logger.error(f"Score not found for session {session_key}")
         raise HTTPException(status_code=404, detail="Счёт не найден")
     
-    logger.debug(f"Returning score for game {game_id}: {score}")
+    logger.info(f"Returning score for game {game_id}: {score}")
     return {
         "player1": score["player1"],
         "player2": score["player2"],
@@ -377,7 +380,7 @@ async def make_ai_move(game_id: str):
                 game["captured_by_player1"].append(piece_symbol)
             else:
                 game["captured_by_player2"].append(piece_symbol)
-            logger.debug(f"Captured piece {piece_symbol} by AI {ai_name} in game {game_id}")
+            logger.info(f"Captured piece {piece_symbol} by AI {ai_name} in game {game_id}")
         
         board.push(ai_move)
         game["moves"].append(ai_move.uci())
@@ -413,11 +416,11 @@ async def make_ai_move(game_id: str):
                     score[game["player1"]]["draws"] += 1
                     score[game["player2"]]["draws"] += 1
                 game["scores_updated"] = True
-                logger.debug(f"Scores updated for game {game_id}: {score}")
+                logger.info(f"Scores updated for game {game_id}: {score}")
             
         if game["mode"] == "aivai" and not game["game_over"]:
             await asyncio.sleep(2)
-            logger.debug(f"Scheduling next AI move for game {game_id}")
+            logger.info(f"Scheduling next AI move for game {game_id}")
             ai_tasks[game_id] = asyncio.create_task(make_ai_move(game_id))
     except Exception as e:
         logger.error(f"Error in AI move for game {game_id}: {str(e)}")
@@ -431,5 +434,5 @@ async def make_ai_move(game_id: str):
 async def shutdown_event():
     for game_id, task in ai_tasks.items():
         task.cancel()
-        logger.debug(f"AI task for game {game_id} canceled during shutdown")
+        logger.info(f"AI task for game {game_id} canceled during shutdown")
     ai_tasks.clear()
