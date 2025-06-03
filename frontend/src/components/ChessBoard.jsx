@@ -51,13 +51,17 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
     }
   };
 
-  const PromotionDialog = () => (
-    <div className="promotion-dialog">
-      <h3>Выберите фигуру</h3>
+  const PromotionSelector = ({ color }) => (
+    <div className="promotion-selector">
+      <p>Выберите фигуру:</p>
       <div className="promotion-options">
         {['q', 'r', 'b', 'n'].map(piece => (
           <button key={piece} onClick={() => handlePromotion(piece)}>
-            {piece.toUpperCase()}
+            <img 
+              src={`/pieces/${color}${piece}.svg`} 
+              alt={piece}
+              className="promotion-piece"
+            />
           </button>
         ))}
       </div>
@@ -77,7 +81,7 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
 
     if (!selectedSquare) {
       if (!piece || (gameState.mode === 'pvai' && piece.color !== 'w')) {
-        return; // Игнорируем пустые клетки или фигуры черных в PvAI
+        return;
       }
       try {
         const response = await fetch(`${API_BASE_URL}/api/game/select?game_id=${gameId}&square=${square}`);
@@ -86,19 +90,22 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
           throw new Error(error.detail || 'Не удалось выбрать фигуру');
         }
         const data = await response.json();
-        if (data.possible_moves.length === 0) {
-          alert('Нет доступных ходов для этой фигуры');
+        if (data.legal_moves.length === 0) {
           return;
         }
         setSelectedSquare(square);
-        setPossibleMoves(data.possible_moves);
+        setPossibleMoves(data.legal_moves);
       } catch (error) {
         console.error('Ошибка при выборе фигуры:', error);
         alert(error.message);
       }
     } else {
-      if (needPromotion(gameState.board, selectedSquare, square)) {
-        setPromotionMove({ from: selectedSquare, to: square });
+      const moveUCI = `${selectedSquare}${square}`;
+      const isPromotion = needPromotion(gameState.board, selectedSquare, square);
+      
+      if (isPromotion) {
+        const color = chess.get(selectedSquare).color === 'w' ? 'w' : 'b';
+        setPromotionMove({ from: selectedSquare, to: square, color });
         return;
       }
 
@@ -161,7 +168,6 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
 
   return (
     <div className="chessboard-container">
-      {promotionMove && <PromotionDialog />}
       {gameState.ai_thinking && <div className="ai-thinking">ИИ думает...</div>}
       <Chessboard
         position={gameState?.board || 'start'}
@@ -170,6 +176,10 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
         boardWidth={500}
         arePiecesDraggable={false}
       />
+      
+      {promotionMove && (
+        <PromotionSelector color={promotionMove.color} />
+      )}
     </div>
   );
 };

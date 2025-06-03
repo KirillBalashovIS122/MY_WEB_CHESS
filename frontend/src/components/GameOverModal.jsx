@@ -1,14 +1,37 @@
 import React from 'react';
-import '../styles.css';
 
-const GameOverModal = ({ winner, onRestart, onExit }) => (
-  <div className="modal">
-    <div className="modal-content">
-      <h2>{winner ? `${winner} выиграл!` : 'Ничья!'}</h2>
-      <button onClick={onRestart}>Реванш</button>
-      <button onClick={onExit}>Выход</button>
+const GameOverModal = ({ winner, onRestart, onExit }) => {
+  const getMessage = () => {
+    if (winner === "Ничья") {
+      return "Игра завершилась вничью!";
+    }
+    return `${winner} побеждает!`;
+  };
+
+  return (
+    <div className="modal">
+      <div className="modal-content">
+        <h2>Игра завершена</h2>
+        <p className="winner-message">{getMessage()}</p>
+        
+        <div className="modal-buttons">
+          <button 
+            className="rematch-button"
+            onClick={onRestart}
+          >
+            Реванш
+          </button>
+          
+          <button 
+            className="exit-button"
+            onClick={onExit}
+          >
+            В главное меню
+          </button>
+        </div>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default GameOverModal;

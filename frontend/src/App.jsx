@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import MainMenu from './components/MainMenu.jsx';
-import PlayerNameModal from './components/PlayerNameModal.jsx';
-import ChessBoard from './components/ChessBoard.jsx';
-import PlayerInfo from './components/PlayerInfo.jsx';
-import GameOverModal from './components/GameOverModal.jsx';
+import MainMenu from './components/MainMenu';
+import PlayerNameModal from './components/PlayerNameModal';
+import ChessBoard from './components/ChessBoard';
+import PlayerInfo from './components/PlayerInfo';
+import GameOverModal from './components/GameOverModal';
 import './styles.css';
 
 const API_BASE_URL = process.env.NODE_ENV === 'development' 
@@ -15,6 +15,8 @@ const App = () => {
   const [gameId, setGameId] = useState(null);
   const [players, setPlayers] = useState({ player1: '', player2: '' });
   const [gameState, setGameState] = useState(null);
+  const [gameScore, setGameScore] = useState("0 - 0");
+  const [lastConfig, setLastConfig] = useState(null);
 
   const startGame = async (config) => {
     try {
@@ -33,12 +35,27 @@ const App = () => {
       setGameId(data.game_id);
       setPlayers({ 
         player1: config.player1, 
-        player2: config.player2 
+        player2: data.player2 
       });
       setGameState(null);
+      setGameScore("0 - 0");
+      setLastConfig(config);
     } catch (error) {
       alert(error.message);
-      console.error('Ошибка при запуске игры:', error);
+    }
+  };
+
+  const fetchGameScore = async () => {
+    if (!gameId) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/game/score?game_id=${gameId}`);
+      if (!response.ok) return;
+      
+      const data = await response.json();
+      setGameScore(data.score);
+    } catch (error) {
+      console.error('Ошибка при получении счета:', error);
     }
   };
 
@@ -47,35 +64,41 @@ const App = () => {
       const fetchState = async () => {
         try {
           const response = await fetch(`${API_BASE_URL}/api/game/state?game_id=${gameId}`);
-          if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || "Ошибка сервера");
-          }
+          if (!response.ok) return;
+          
           const data = await response.json();
-          console.log('Получено состояние игры:', data);
-          setGameState(prevState => {
-            if (prevState?.board !== data.board) {
-              console.log('Обновлено состояние доски:', data.board);
-            }
-            return data;
-          });
+          setGameState(data);
         } catch (error) {
           console.error('Ошибка при получении состояния игры:', error);
         }
       };
       
       fetchState();
+      fetchGameScore();
       const interval = setInterval(fetchState, 1000);
       return () => clearInterval(interval);
     }
   }, [gameId]);
 
   const handleRestart = () => {
-    setGameId(null);
-    setGameState(null);
+    if (lastConfig) {
+      startGame(lastConfig);
+    }
   };
 
-  const handleExit = () => {
+  const handleExit = async () => {
+    if (mode === 'aivai' && gameId) {
+      try {
+        await fetch(`${API_BASE_URL}/api/game/stop`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ game_id: gameId })
+        });
+      } catch (error) {
+        console.error('Ошибка при остановке игры:', error);
+      }
+    }
+    
     setMode(null);
     setGameId(null);
     setGameState(null);
@@ -87,40 +110,57 @@ const App = () => {
   if (!gameId) {
     return <PlayerNameModal mode={mode} onSubmit={startGame} />;
   }
+  
   return (
     <div className="game-container">
-      {gameState ? (
-        <>
-          <div className="turn-indicator">
-            Ход: {gameState.turn === 'white' ? 'Белые' : 'Чёрные'}
-          </div>
-          <PlayerInfo 
-            player={players.player1} 
-            moves={gameState.moves} 
-            playerNumber={1} 
-            gameId={gameId} 
-            gameMode={gameState.mode}
-          />
-          <div className="board-container">
-            <ChessBoard gameId={gameId} gameState={gameState} onMove={setGameState} />
-          </div>
-          <PlayerInfo 
-            player={players.player2} 
-            moves={gameState.moves} 
-            playerNumber={2} 
-            gameId={gameId} 
-            gameMode={gameState.mode}
-          />
-          {gameState.game_over && (
-            <GameOverModal
-              winner={gameState.winner}
-              onRestart={handleRestart}
-              onExit={handleExit}
-            />
+      <div className="game-header">
+        <div className="score-board">
+          {gameScore}
+        </div>
+        
+        <button 
+          className="exit-button"
+          onClick={handleExit}
+        >
+          Выход
+        </button>
+      </div>
+
+      <div className="game-content">
+        <PlayerInfo 
+          player={players.player1} 
+          moves={gameState?.moves || []} 
+          playerNumber={1} 
+          gameId={gameId} 
+          gameMode={mode}
+        />
+        
+        <div className="board-container">
+          {gameState && (
+            <>
+              <div className="turn-indicator">
+                Ход: {gameState.turn === 'белые' ? 'Белые' : 'Чёрные'}
+              </div>
+              <ChessBoard gameId={gameId} gameState={gameState} onMove={setGameState} />
+            </>
           )}
-        </>
-      ) : (
-        <div>Загрузка игры...</div>
+        </div>
+        
+        <PlayerInfo 
+          player={players.player2} 
+          moves={gameState?.moves || []} 
+          playerNumber={2} 
+          gameId={gameId} 
+          gameMode={mode}
+        />
+      </div>
+
+      {gameState?.game_over && (
+        <GameOverModal
+          winner={gameState.winner}
+          onRestart={handleRestart}
+          onExit={handleExit}
+        />
       )}
     </div>
   );

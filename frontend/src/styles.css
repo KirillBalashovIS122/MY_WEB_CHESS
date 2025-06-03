@@ -8,6 +8,47 @@ body {
     font-size: 1.2rem;
 }
 
+/* Шапка игры */
+.game-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: rgba(76, 175, 80, 0.2);
+    border: 2px solid #4caf50;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    width: 100%;
+    max-width: 1200px;
+}
+
+.score-board {
+    font-size: 2.5rem;
+    color: #2e7d32;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+}
+
+.header-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.exit-button {
+    background: rgba(200, 230, 201, 0.7);
+    border: 2px solid #4caf50;
+    color: #2e7d32;
+    padding: 0.8rem 1.5rem;
+    font-size: 1.5rem;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.exit-button:hover {
+    background: #4caf50;
+    color: white;
+}
+
+/* Основной контейнер */
 .game-menu-container {
     background: linear-gradient(145deg, #f0f0f0 0%, #e0f7e0 100%);
     border-radius: 16px;
@@ -21,6 +62,8 @@ body {
     color: #4caf50;
     font-size: 4.5rem;
     text-align: center;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 2rem;
 }
 
 .game-buttons button {
@@ -33,8 +76,17 @@ body {
     cursor: pointer;
     width: 100%;
     margin: 1rem 0;
+    transition: all 0.3s;
 }
 
+.game-buttons button:hover {
+    background: #4caf50;
+    color: white;
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+
+/* Модальные окна */
 .modal {
     position: fixed;
     top: 0;
@@ -45,6 +97,7 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
+    z-index: 1000;
 }
 
 .modal-content {
@@ -53,15 +106,25 @@ body {
     border-radius: 12px;
     padding: 2.5rem;
     text-align: center;
-    max-width: 350px;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+}
+
+.modal-content h2 {
+    color: #4caf50;
+    font-size: 2.5rem;
+    margin-top: 0;
 }
 
 .modal-content input {
     margin: 1rem 0;
-    padding: 0.5rem;
+    padding: 0.8rem;
     width: 100%;
-    font-size: 1.2rem;
+    font-size: 1.5rem;
     border: 1px solid #4caf50;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.8);
 }
 
 .modal-content button {
@@ -71,157 +134,202 @@ body {
     font-size: 1.5rem;
     color: white;
     cursor: pointer;
+    width: 100%;
+    border-radius: 8px;
+    margin-top: 1rem;
+    transition: background 0.3s;
 }
 
+.modal-content button:hover {
+    background: #3d8b40;
+}
+
+.modal-content button:disabled {
+    background: #a5d6a7;
+    cursor: not-allowed;
+}
+
+/* Контейнер игры */
 .game-container {
     display: flex;
     flex-direction: column;
     align-items: center;
     max-width: 1200px;
     margin: 2rem auto;
+    padding: 20px;
     position: relative;
-    min-height: 600px;
+}
+
+.game-content {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    gap: 20px;
+    margin-top: 20px;
 }
 
 .board-container {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    flex-grow: 1;
+    max-width: 600px;
 }
 
+/* Информация об игроках */
 .player-info {
-    background: #f0f0f0;
+    background: rgba(200, 230, 201, 0.7);
     border: 2px solid #4caf50;
     border-radius: 12px;
     padding: 1.5rem;
-    width: 200px;
-}
-
-.player-1 {
-    position: absolute;
-    top: 0;
-    left: 0;
-}
-
-.player-2 {
-    position: absolute;
-    bottom: 0;
-    right: 0;
+    width: 250px;
+    min-height: 400px;
+    display: flex;
+    flex-direction: column;
 }
 
 .player-info h3 {
     color: #4caf50;
-    font-size: 1.8rem;
+    font-size: 2rem;
     margin: 0 0 1rem;
+    text-align: center;
+    text-transform: uppercase;
 }
 
-.player-info ul {
-    list-style: none;
-    padding: 0;
-    max-height: 300px;
+.moves-container {
+    flex-grow: 1;
     overflow-y: auto;
+    margin-bottom: 1rem;
+    background: rgba(255,255,255,0.5);
+    border-radius: 8px;
+    padding: 10px;
+    border: 1px solid #4caf50;
 }
 
-.player-2 ul {
+.move-item {
     display: flex;
-    flex-direction: column-reverse;
+    padding: 0.5rem 0;
+    border-bottom: 1px dashed #4caf50;
 }
 
-.player-info li {
-    font-size: 1.2rem;
-    margin: 0.5rem 0;
+.move-number {
+    width: 40px;
+    font-weight: bold;
+    font-size: 1.5rem;
+    color: #2e7d32;
 }
 
+.move-text {
+    font-size: 1.5rem;
+    flex-grow: 1;
+}
+
+/* Индикатор хода */
 .turn-indicator {
     text-align: center;
     font-size: 2.5rem;
-    color: #66bb6a;
-    background: #f0f0f0;
+    color: #2e7d32;
+    background: rgba(200, 230, 201, 0.7);
     border: 2px solid #4caf50;
-    border-radius: 8px;
-    padding: 0.5rem;
+    border-radius: 10px;
+    padding: 0.5rem 1rem;
     margin-bottom: 1rem;
-}
-
-.surrender-button {
-    background: #4caf50;
-    border: none;
-    padding: 0.8rem;
-    font-size: 1.2rem;
-    color: white;
-    cursor: pointer;
     width: 100%;
-    border-radius: 8px;
-    margin-top: 1rem;
 }
 
-.model-selector {
-    margin: 1rem 0;
-}
-
-.model-selector h3 {
-    color: #4caf50;
-    font-size: 1.5rem;
-    margin: 0.5rem 0;
-}
-
-.model-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    justify-content: center;
-}
-
-.model-buttons button {
+/* Кнопка сдачи */
+.surrender-button {
     background: rgba(200, 230, 201, 0.7);
     border: 2px solid #4caf50;
     color: #2e7d32;
-    padding: 0.5rem 1rem;
-    font-size: 1.2rem;
-    border-radius: 8px;
+    padding: 0.8rem;
+    font-size: 1.5rem;
     cursor: pointer;
+    width: 100%;
+    border-radius: 8px;
+    margin-top: auto;
+    transition: all 0.3s;
 }
 
-.model-buttons button.selected {
+.surrender-button:hover {
     background: #4caf50;
     color: white;
 }
 
+/* Выбор ИИ */
+.ai-selection {
+    margin: 1.5rem 0;
+}
+
+.ai-option {
+    margin-bottom: 1.5rem;
+}
+
+.ai-option h3 {
+    color: #4caf50;
+    font-size: 1.8rem;
+    margin: 0.5rem 0;
+    text-align: center;
+}
+
+.ai-option select {
+    width: 100%;
+    padding: 0.8rem;
+    font-size: 1.5rem;
+    border: 2px solid #4caf50;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.8);
+    color: #2e7d32;
+    text-align: center;
+}
+
+/* Диалог превращения пешки */
 .promotion-dialog {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    position: relative;
     background: #f0f0f0;
     border: 2px solid #4caf50;
     border-radius: 12px;
     padding: 1.5rem;
     text-align: center;
     z-index: 1000;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    margin-top: 1rem;
 }
 
 .promotion-options {
     display: flex;
     gap: 1rem;
     justify-content: center;
+    flex-wrap: wrap;
 }
 
 .promotion-options button {
-    background: #4caf50;
+    background: none;
     border: none;
-    padding: 0.8rem;
-    font-size: 1.5rem;
-    color: white;
+    padding: 0;
+    margin: 0.5rem;
     cursor: pointer;
-    border-radius: 8px;
 }
 
-.ai-thinking {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #4caf50;
-    color: white;
-    padding: 0.5rem;
-    border-radius: 8px;
+.promotion-options img {
+    width: 50px;
+    height: 50px;
+}
+
+.promotion-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0.5rem;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.promotion-button:hover {
+  transform: scale(1.2);
+}
+
+.promotion-button svg {
+  width: 50px;
+  height: 50px;
 }

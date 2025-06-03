@@ -1,39 +1,36 @@
 import chess
 
-def create_board():
-    """Создает новую шахматную доску."""
+def create_board() -> chess.Board:
+    """Создает новую шахматную доску с начальной позицией."""
     return chess.Board()
 
-def is_game_over(board: chess.Board):
+def is_game_over(board: chess.Board) -> bool:
     """Проверяет, завершена ли игра."""
     return board.is_game_over()
 
-def get_legal_moves(board: chess.Board, square: str = None):
-    """Возвращает список допустимых ходов для указанной клетки или всей доски."""
+def get_legal_moves(board: chess.Board, square: str = None) -> list:
+    """Возвращает допустимые ходы для указанной клетки или всей доски."""
     if square:
         try:
-            square = chess.parse_square(square)
-            return [move.uci() for move in board.legal_moves if move.from_square == square]
+            square_idx = chess.parse_square(square)
+            return [move for move in board.legal_moves if move.from_square == square_idx]
         except ValueError:
             return []
-    return [move.uci() for move in board.legal_moves]
+    return list(board.legal_moves)
 
-def make_move(board: chess.Board, move: str):
-    """Делает ход на доске. Возвращает True, если ход успешен."""
+def make_move(board: chess.Board, move: str) -> bool:
+    """Выполняет ход на доске. Возвращает True при успехе."""
     try:
         move_obj = chess.Move.from_uci(move)
         if move_obj in board.legal_moves:
             board.push(move_obj)
-            print(f"Move {move} applied successfully. New board state: {board.fen()}")  # Добавлено для отладки
             return True
-        print(f"Move {move} is not legal.")  # Добавлено для отладки
         return False
-    except ValueError as e:
-        print(f"Invalid move {move}: {str(e)}")  # Добавлено для отладки
+    except ValueError:
         return False
 
-def get_game_result(board: chess.Board):
-    """Возвращает результат игры."""
-    if not board.is_game_over():
-        return None
-    return board.result()
+def get_game_result(board: chess.Board) -> str:
+    """Возвращает результат завершенной игры."""
+    if board.is_game_over():
+        return board.result()
+    return None

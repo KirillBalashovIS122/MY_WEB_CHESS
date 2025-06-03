@@ -4,33 +4,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import chess
 import asyncio
-from typing import List, Optional, Dict
-import os
+from typing import Dict, Optional, List
 import uuid
 from datetime import datetime
-from ais import available_ais
-from chess_ai import get_best_move, load_custom_light_model
+from chess_ai import get_best_move, available_ais
 from chess_engine import create_board, is_game_over, get_legal_moves, make_move, get_game_result
 
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 app = FastAPI()
 
-origins = [
-    "http://localhost:3000",
-    "http://frontend:3000",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://localhost:3000", "http://frontend:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 class GameState(BaseModel):
+    """Модель состояния игры."""
     game_id: str
     board: str
     turn: str
@@ -43,44 +37,46 @@ class GameState(BaseModel):
     player2: str
 
 class MoveRequest(BaseModel):
+    """Модель запроса на выполнение хода."""
     game_id: str
     from_square: str
     to_square: str
     promotion: Optional[str] = None
 
 class GameConfig(BaseModel):
+    """Модель конфигурации новой игры."""
     mode: str
     player1: str
     player2: Optional[str] = None
-    ai_name: Optional[str] = None
+    ai_white: Optional[str] = None
+    ai_black: Optional[str] = None
 
 class SurrenderRequest(BaseModel):
+    """Модель запроса на сдачу."""
     game_id: str
     player: int
 
-class GameInfo(BaseModel):
-    game_id: str
-    mode: str
-    player1: str
-    player2: str
-    started_at: str
-    moves_count: int
-    status: str
-
 games: Dict[str, Dict] = {}
 ai_tasks: Dict[str, asyncio.Task] = {}
+game_scores: Dict[str, Dict] = {}
 
 @app.post("/api/game/start")
 async def start_game(config: GameConfig):
-    logger.debug(f"Получен запрос на начало игры: {config.dict()}")
+    """Создает новую игру с указанными параметрами."""
     if len(config.player1) > 20 or (config.player2 and len(config.player2) > 20):
         raise HTTPException(status_code=400, detail="Имя игрока слишком длинное")
     
     if config.mode not in ["pvp", "pvai", "aivai"]:
-        raise HTTPException(status_code=400, detail="Недопустимый режим")
+        raise HTTPException(status_code=400, detail="Недопустимый режим игры")
     
-    if config.mode in ["pvai", "aivai"] and (not config.ai_name or config.ai_name not in available_ais):
+    if config.mode == "pvai" and (not config.ai_black or config.ai_black not in available_ais):
         raise HTTPException(status_code=400, detail="Недопустимое имя ИИ")
+    
+    if config.mode == "aivai" and (
+        not config.ai_white or not config.ai_black or 
+        config.ai_white not in available_ais or config.ai_black not in available_ais
+    ):
+        raise HTTPException(status_code=400, detail="Недопустимая комбинация ИИ")
     
     player2 = config.player2 or ("ИИ" if config.mode in ["pvai", "aivai"] else "Игрок 2")
     game_id = str(uuid.uuid4())
@@ -93,28 +89,34 @@ async def start_game(config: GameConfig):
         "moves": [],
         "game_over": False,
         "winner": None,
-        "ai_name": config.ai_name if config.mode in ["pvai", "aivai"] else None,
-        "ai_thinking": False,
+        "ai_white": config.ai_white if config.mode == "aivai" else None,
+        "ai_black": config.ai_black if config.mode in ["pvai", "aivai"] else None,
         "started_at": datetime.now().isoformat(),
         "status": "ожидание"
     }
     
+    # Инициализация счета
+    game_scores[game_id] = {
+        "player1": 0,
+        "player2": 0,
+        "draws": 0
+    }
+    
     if config.mode == "aivai":
         games[game_id]["status"] = "игра"
-        logger.info(f"Запланирован ход ИИ для игры AIvAI {game_id}")
         ai_tasks[game_id] = asyncio.create_task(make_ai_move(game_id))
     
-    logger.info(f"Игра {game_id} начата: {config.mode}, игрок 1: {config.player1}, игрок 2: {player2}")
+    logger.info(f"Игра {game_id} начата: {config.mode}")
     return {"game_id": game_id, "player2": player2}
 
 @app.get("/api/game/state", response_model=GameState)
 async def get_state(game_id: str):
+    """Возвращает текущее состояние игры."""
     game = games.get(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Игра не найдена")
     
     board = game["board"]
-    logger.debug(f"Returning board state for game {game_id}: {board.fen()}")
     return GameState(
         game_id=game_id,
         board=board.fen(),
@@ -129,62 +131,72 @@ async def get_state(game_id: str):
     )
 
 @app.get("/api/game/select")
-async def select_piece(game_id: str, square: str):
+async def select_square(game_id: str, square: str):
+    """Возвращает список возможных ходов для выбранной клетки."""
     game = games.get(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Игра не найдена")
     
+    if game["game_over"]:
+        raise HTTPException(status_code=400, detail="Игра завершена")
+    
     board = game["board"]
-    possible_moves = get_legal_moves(board, square)
-    logger.debug(f"Выбрана клетка {square} в игре {game_id}, возможные ходы: {possible_moves}")
-    return {"possible_moves": possible_moves}
+    legal_moves = get_legal_moves(board, square)
+    valid_moves = [move.uci() for move in legal_moves]
+    
+    return {"game_id": game_id, "square": square, "legal_moves": valid_moves}
 
 @app.post("/api/game/move")
 async def make_move_endpoint(move: MoveRequest, background_tasks: BackgroundTasks):
+    """Выполняет ход в указанной игре."""
     game = games.get(move.game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Игра не найдена")
     
     board = game["board"]
     if game["game_over"]:
-        raise HTTPException(status_code=400, detail="Игра уже завершена")
+        raise HTTPException(status_code=400, detail="Игра завершена")
     
-    try:
-        if game["status"] == "ожидание":
-            game["status"] = "игра"
-        
-        uci_move = f"{move.from_square}{move.to_square}"
-        if move.promotion:
-            uci_move += move.promotion.lower()
-        
-        if not make_move(board, uci_move):
-            raise HTTPException(status_code=400, detail="Недопустимый ход")
-        
-        game["moves"].append(uci_move)
-        logger.info(f"Ход {uci_move} сделан в игре {move.game_id}, новое состояние: {board.fen()}")
-        
-        if is_game_over(board):
-            game["game_over"] = True
-            game["status"] = "завершена"
-            result = get_game_result(board)
-            game["winner"] = (
-                game["player1"] if result == "1-0" 
-                else game["player2"] if result == "0-1" 
-                else "Ничья"
-            )
-            logger.info(f"Игра {move.game_id} завершена: победитель {game['winner']}")
-        
-        if game["mode"] in ["pvai", "aivai"] and not game["game_over"]:
-            if (game["mode"] == "pvai" and not board.turn) or game["mode"] == "aivai":
-                logger.info(f"Запланирован ход ИИ для игры {move.game_id}")
-                background_tasks.add_task(make_ai_move, move.game_id)
-        
-        return {"success": True, "state": await get_state(move.game_id)}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Недопустимый ход: {str(e)}")
+    if game["status"] == "ожидание":
+        game["status"] = "игра"
+    
+    uci_move = f"{move.from_square}{move.to_square}"
+    if move.promotion:
+        uci_move += move.promotion.lower()
+    
+    if not make_move(board, uci_move):
+        raise HTTPException(status_code=400, detail="Недопустимый ход")
+    
+    game["moves"].append(uci_move)
+    
+    if is_game_over(board):
+        game["game_over"] = True
+        game["status"] = "завершена"
+        result = get_game_result(board)
+        game["winner"] = (
+            game["player1"] if result == "1-0" 
+            else game["player2"] if result == "0-1" 
+            else "Ничья"
+        )
+        # Обновляем счет
+        if game["winner"] == game["player1"]:
+            game_scores[move.game_id]["player1"] += 1
+        elif game["winner"] == game["player2"]:
+            game_scores[move.game_id]["player2"] += 1
+        else:
+            game_scores[move.game_id]["draws"] += 1
+    
+    if not game["game_over"]:
+        if game["mode"] == "pvai" and not board.turn:
+            background_tasks.add_task(make_ai_move, move.game_id)
+        elif game["mode"] == "aivai":
+            background_tasks.add_task(make_ai_move, move.game_id)
+    
+    return {"success": True, "state": await get_state(move.game_id)}
 
 @app.post("/api/game/surrender")
 async def surrender_game(surrender: SurrenderRequest):
+    """Обрабатывает сдачу игрока."""
     game = games.get(surrender.game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Игра не найдена")
@@ -195,59 +207,69 @@ async def surrender_game(surrender: SurrenderRequest):
     game["game_over"] = True
     game["status"] = "завершена"
     game["winner"] = game["player2"] if surrender.player == 1 else game["player1"]
-    logger.info(f"Игра {surrender.game_id} завершена сдачей: победитель {game['winner']}")
+    # Обновляем счет
+    if surrender.player == 1:
+        game_scores[surrender.game_id]["player2"] += 1
+    else:
+        game_scores[surrender.game_id]["player1"] += 1
     
     return {"success": True, "state": await get_state(surrender.game_id)}
 
-@app.get("/api/ai/models", response_model=dict)
-async def get_ai_models():
-    models = list(available_ais.keys())
-    logger.debug(f"Доступные модели: {models}")
-    return {"models": models}
+@app.post("/api/game/stop")
+async def stop_game(game_id: str):
+    """Останавливает игру ИИ против ИИ."""
+    game = games.get(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+    
+    if game["mode"] != "aivai":
+        raise HTTPException(status_code=400, detail="Только для режима ИИ против ИИ")
+    
+    task = ai_tasks.get(game_id)
+    if task:
+        task.cancel()
+        del ai_tasks[game_id]
+    
+    del games[game_id]
+    return {"success": True}
 
-@app.get("/api/games/active", response_model=List[GameInfo])
-async def get_active_games():
-    active = []
-    for game_id, game in games.items():
-        if game["status"] != "завершена":
-            active.append({
-                "game_id": game_id,
-                "mode": game["mode"],
-                "player1": game["player1"],
-                "player2": game["player2"],
-                "started_at": game["started_at"],
-                "moves_count": len(game["moves"]),
-                "status": game["status"]
-            })
-    logger.debug(f"Активные игры: {len(active)}")
-    return active
+@app.get("/api/game/score")
+async def get_game_score(game_id: str):
+    """Возвращает текущий счет игры."""
+    score = game_scores.get(game_id)
+    if not score:
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+    
+    return {
+        "player1": score["player1"],
+        "player2": score["player2"],
+        "draws": score["draws"],
+        "score": f"{score['player1']} - {score['player2']}"
+    }
 
 async def make_ai_move(game_id: str):
+    """Выполняет ход ИИ для указанной игры."""
     game = games.get(game_id)
     if not game or game["game_over"]:
-        logger.info(f"Ход ИИ пропущен: игра {game_id} не найдена или завершена")
         return
-    
-    logger.info(f"Начало хода ИИ для игры {game_id}, режим: {game['mode']}, ход: {'белые' if game['board'].turn else 'чёрные'}")
     
     game["ai_thinking"] = True
     
     try:
         board = game["board"]
-        ai_name = game["ai_name"]
         
-        ai_move = await get_best_move(
-            board,
-            ai_name,
-            depth=3 if ai_name == "stockfish" else 1,
-            skill_level=1 if ai_name == "stockfish" else 1
-        )
+        if game["mode"] == "pvai" and not board.turn:
+            ai_name = game["ai_black"]
+        elif game["mode"] == "aivai":
+            ai_name = game["ai_white"] if board.turn else game["ai_black"]
+        else:
+            return
+        
+        ai_move = await get_best_move(board, ai_name)
         
         if ai_move and ai_move in board.legal_moves:
-            logger.info(f"Выбран ход ИИ: {ai_move.uci()}")
             board.push(ai_move)
             game["moves"].append(ai_move.uci())
-            logger.debug(f"Состояние доски после хода ИИ: {board.fen()}")
             
             if is_game_over(board):
                 game["game_over"] = True
@@ -258,45 +280,22 @@ async def make_ai_move(game_id: str):
                     else game["player2"] if result == "0-1" 
                     else "Ничья"
                 )
-                logger.info(f"Игра {game_id} завершена: победитель {game['winner']}")
+                # Обновляем счет
+                if game["winner"] == game["player1"]:
+                    game_scores[game_id]["player1"] += 1
+                elif game["winner"] == game["player2"]:
+                    game_scores[game_id]["player2"] += 1
+                else:
+                    game_scores[game_id]["draws"] += 1
             
             if game["mode"] == "aivai" and not game["game_over"]:
-                logger.info(f"Запланирован следующий ход ИИ для режима AIvAI")
                 await asyncio.sleep(1)
                 ai_tasks[game_id] = asyncio.create_task(make_ai_move(game_id))
-        else:
-            logger.warning(f"ИИ не вернул допустимый ход для игры {game_id}")
-    except Exception as e:
-        logger.error(f"Ошибка хода ИИ в игре {game_id}: {str(e)}")
     finally:
         game["ai_thinking"] = False
 
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Запуск API шахматного приложения")
-    logger.info(f"Current working directory: {os.getcwd()}")
-    logger.info(f"Files in directory: {os.listdir()}")
-    if os.path.exists("engines/numbfish"):
-        logger.info(f"Files in engines: {os.listdir('engines/numbfish')}")
-    os.makedirs("models", exist_ok=True)
-    load_custom_light_model()
-
 @app.on_event("shutdown")
 async def shutdown_event():
-    logger.info("Остановка приложения")
+    """Обработчик события остановки приложения."""
     for task in ai_tasks.values():
         task.cancel()
-
-@app.get("/test-engines")
-async def test_engines():
-    import time
-    board = chess.Board()
-    results = {}
-    for ai_name in available_ais:
-        start = time.time()
-        move = await get_best_move(board.copy(), ai_name)
-        results[ai_name] = {
-            "move": move.uci() if move else None,
-            "time": time.time() - start
-        }
-    return results
