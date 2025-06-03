@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import chess
 import asyncio
 from typing import Dict, Optional, List
@@ -35,6 +35,8 @@ class GameState(BaseModel):
     mode: str
     player1: str
     player2: str
+    captured_by_player1: List[str] = Field(default_factory=list)
+    captured_by_player2: List[str] = Field(default_factory=list)
 
 class MoveRequest(BaseModel):
     """Модель запроса на выполнение хода."""
@@ -59,6 +61,16 @@ class SurrenderRequest(BaseModel):
 games: Dict[str, Dict] = {}
 ai_tasks: Dict[str, asyncio.Task] = {}
 game_scores: Dict[str, Dict] = {}
+player_scores: Dict[str, Dict] = {}
+
+# Стоимость фигур для расчета перевеса
+PIECE_VALUES = {
+    'p': 1, 'P': 1,  # Пешка
+    'n': 3, 'N': 3,  # Конь
+    'b': 3, 'B': 3,  # Слон
+    'r': 5, 'R': 5,  # Ладья
+    'q': 9, 'Q': 9,  # Ферзь
+}
 
 @app.post("/api/game/start")
 async def start_game(config: GameConfig):
@@ -81,6 +93,11 @@ async def start_game(config: GameConfig):
     player2 = config.player2 or ("ИИ" if config.mode in ["pvai", "aivai"] else "Игрок 2")
     game_id = str(uuid.uuid4())
     
+    if config.player1 not in player_scores:
+        player_scores[config.player1] = {"wins": 0, "losses": 0, "draws": 0}
+    if player2 not in player_scores:
+        player_scores[player2] = {"wins": 0, "losses": 0, "draws": 0}
+    
     games[game_id] = {
         "board": create_board(),
         "mode": config.mode,
@@ -92,14 +109,18 @@ async def start_game(config: GameConfig):
         "ai_white": config.ai_white if config.mode == "aivai" else None,
         "ai_black": config.ai_black if config.mode in ["pvai", "aivai"] else None,
         "started_at": datetime.now().isoformat(),
-        "status": "ожидание"
+        "status": "ожидание",
+        "captured_by_player1": [],
+        "captured_by_player2": [],
     }
     
-    # Инициализация счета
     game_scores[game_id] = {
-        "player1": 0,
-        "player2": 0,
-        "draws": 0
+        "player1": config.player1,
+        "player2": player2,
+        "scores": {
+            config.player1: player_scores[config.player1],
+            player2: player_scores[player2]
+        }
     }
     
     if config.mode == "aivai":
@@ -127,7 +148,9 @@ async def get_state(game_id: str):
         ai_thinking=game.get("ai_thinking", False),
         mode=game["mode"],
         player1=game["player1"],
-        player2=game["player2"]
+        player2=game["player2"],
+        captured_by_player1=game["captured_by_player1"],
+        captured_by_player2=game["captured_by_player2"],
     )
 
 @app.get("/api/game/select")
@@ -160,12 +183,29 @@ async def make_move_endpoint(move: MoveRequest, background_tasks: BackgroundTask
     if game["status"] == "ожидание":
         game["status"] = "игра"
     
-    uci_move = f"{move.from_square}{move.to_square}"
+    uci_move = move.from_square + move.to_square
     if move.promotion:
         uci_move += move.promotion.lower()
     
-    if not make_move(board, uci_move):
+    is_promotion = False
+    piece = board.piece_at(chess.parse_square(move.from_square))
+    if piece and piece.piece_type == chess.PAWN:
+        to_rank = chess.square_rank(chess.parse_square(move.to_square))
+        if to_rank == 0 or to_rank == 7:
+            is_promotion = True
+            if not move.promotion:
+                raise HTTPException(status_code=400, detail="Не указана фигура для превращения")
+    
+    success, captured_piece = make_move(board, uci_move)
+    if not success:
         raise HTTPException(status_code=400, detail="Недопустимый ход")
+    
+    if captured_piece:
+        piece_symbol = captured_piece.symbol()
+        if board.turn == chess.WHITE:  # После хода белых
+            game["captured_by_player1"].append(piece_symbol)
+        else:  # После хода чёрных
+            game["captured_by_player2"].append(piece_symbol)
     
     game["moves"].append(uci_move)
     
@@ -178,13 +218,23 @@ async def make_move_endpoint(move: MoveRequest, background_tasks: BackgroundTask
             else game["player2"] if result == "0-1" 
             else "Ничья"
         )
-        # Обновляем счет
+        
+        score = game_scores[move.game_id]["scores"]
         if game["winner"] == game["player1"]:
-            game_scores[move.game_id]["player1"] += 1
+            player_scores[game["player1"]]["wins"] += 1
+            player_scores[game["player2"]]["losses"] += 1
+            score[game["player1"]]["wins"] += 1
+            score[game["player2"]]["losses"] += 1
         elif game["winner"] == game["player2"]:
-            game_scores[move.game_id]["player2"] += 1
+            player_scores[game["player2"]]["wins"] += 1
+            player_scores[game["player1"]]["losses"] += 1
+            score[game["player2"]]["wins"] += 1
+            score[game["player1"]]["losses"] += 1
         else:
-            game_scores[move.game_id]["draws"] += 1
+            player_scores[game["player1"]]["draws"] += 1
+            player_scores[game["player2"]]["draws"] += 1
+            score[game["player1"]]["draws"] += 1
+            score[game["player2"]]["draws"] += 1
     
     if not game["game_over"]:
         if game["mode"] == "pvai" and not board.turn:
@@ -206,12 +256,21 @@ async def surrender_game(surrender: SurrenderRequest):
     
     game["game_over"] = True
     game["status"] = "завершена"
-    game["winner"] = game["player2"] if surrender.player == 1 else game["player1"]
-    # Обновляем счет
-    if surrender.player == 1:
-        game_scores[surrender.game_id]["player2"] += 1
+    
+    winner = game["player2"] if surrender.player == 1 else game["player1"]
+    game["winner"] = winner
+    
+    score = game_scores[surrender.game_id]["scores"]
+    if winner == game["player1"]:
+        player_scores[game["player1"]]["wins"] += 1
+        player_scores[game["player2"]]["losses"] += 1
+        score[game["player1"]]["wins"] += 1
+        score[game["player2"]]["losses"] += 1
     else:
-        game_scores[surrender.game_id]["player1"] += 1
+        player_scores[game["player2"]]["wins"] += 1
+        player_scores[game["player1"]]["losses"] += 1
+        score[game["player2"]]["wins"] += 1
+        score[game["player1"]]["losses"] += 1
     
     return {"success": True, "state": await get_state(surrender.game_id)}
 
@@ -243,8 +302,8 @@ async def get_game_score(game_id: str):
     return {
         "player1": score["player1"],
         "player2": score["player2"],
-        "draws": score["draws"],
-        "score": f"{score['player1']} - {score['player2']}"
+        "scores": score["scores"],
+        "score": f"{score['scores'][score['player1']]['wins']} - {score['scores'][score['player2']]['wins']}"
     }
 
 async def make_ai_move(game_id: str):
@@ -268,6 +327,14 @@ async def make_ai_move(game_id: str):
         ai_move = await get_best_move(board, ai_name)
         
         if ai_move and ai_move in board.legal_moves:
+            captured_piece = board.piece_at(ai_move.to_square)
+            if captured_piece:
+                piece_symbol = captured_piece.symbol()
+                if board.turn == chess.WHITE:
+                    game["captured_by_player1"].append(piece_symbol)
+                else:
+                    game["captured_by_player2"].append(piece_symbol)
+            
             board.push(ai_move)
             game["moves"].append(ai_move.uci())
             
@@ -280,17 +347,28 @@ async def make_ai_move(game_id: str):
                     else game["player2"] if result == "0-1" 
                     else "Ничья"
                 )
-                # Обновляем счет
+                score = game_scores[game_id]["scores"]
                 if game["winner"] == game["player1"]:
-                    game_scores[game_id]["player1"] += 1
+                    player_scores[game["player1"]]["wins"] += 1
+                    player_scores[game["player2"]]["losses"] += 1
+                    score[game["player1"]]["wins"] += 1
+                    score[game["player2"]]["losses"] += 1
                 elif game["winner"] == game["player2"]:
-                    game_scores[game_id]["player2"] += 1
+                    player_scores[game["player2"]]["wins"] += 1
+                    player_scores[game["player1"]]["losses"] += 1
+                    score[game["player2"]]["wins"] += 1
+                    score[game["player1"]]["losses"] += 1
                 else:
-                    game_scores[game_id]["draws"] += 1
+                    player_scores[game["player1"]]["draws"] += 1
+                    player_scores[game["player2"]]["draws"] += 1
+                    score[game["player1"]]["draws"] += 1
+                    score[game["player2"]]["draws"] += 1
             
             if game["mode"] == "aivai" and not game["game_over"]:
                 await asyncio.sleep(1)
                 ai_tasks[game_id] = asyncio.create_task(make_ai_move(game_id))
+    except Exception as e:
+        logger.error(f"Error in AI move: {e}")
     finally:
         game["ai_thinking"] = False
 

@@ -283,53 +283,98 @@ body {
     text-align: center;
 }
 
-/* Диалог превращения пешки */
-.promotion-dialog {
-    position: relative;
-    background: #f0f0f0;
-    border: 2px solid #4caf50;
-    border-radius: 12px;
-    padding: 1.5rem;
-    text-align: center;
-    z-index: 1000;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-    margin-top: 1rem;
+.promotion-selector {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.95);
+  border: 2px solid #4caf50;
+  border-radius: 10px;
+  padding: 20px;
+  z-index: 100;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.promotion-selector p {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 1.5rem;
+  text-align: center;
+  color: #2e7d32;
 }
 
 .promotion-options {
-    display: flex;
-    gap: 1rem;
-    justify-content: center;
-    flex-wrap: wrap;
-}
-
-.promotion-options button {
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0.5rem;
-    cursor: pointer;
-}
-
-.promotion-options img {
-    width: 50px;
-    height: 50px;
+  display: flex;
+  gap: 15px;
+  justify-content: center;
 }
 
 .promotion-button {
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0.5rem;
+  width: 50px;
+  height: 50px;
+  font-size: 1.8rem;
+  font-weight: bold;
+  background: #f0f0f0;
+  border: 2px solid #4caf50;
+  border-radius: 8px;
   cursor: pointer;
-  transition: transform 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
 }
 
 .promotion-button:hover {
-  transform: scale(1.2);
+  background: #4caf50;
+  color: white;
+  transform: scale(1.1);
 }
 
-.promotion-button svg {
-  width: 50px;
-  height: 50px;
+/* Добавьте эти стили в существующий файл */
+
+.player-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
 }
+
+.captured-value {
+  background: #4CAF50;
+  color: white;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.captured-pieces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-height: 30px;
+  margin-bottom: 10px;
+}
+
+.captured-piece {
+  width: 25px;
+  height: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid #4CAF50;
+  border-radius: 4px;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.piece-p, .piece-P { color: #2E7D32; }
+.piece-n, .piece-N { color: #2E7D32; }
+.piece-b, .piece-B { color: #2E7D32; }
+.piece-r, .piece-R { color: #2E7D32; }
+.piece-q, .piece-Q { color: #2E7D32; }

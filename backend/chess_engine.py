@@ -1,4 +1,5 @@
 import chess
+from typing import Tuple, Optional
 
 def create_board() -> chess.Board:
     """Создает новую шахматную доску с начальной позицией."""
@@ -18,16 +19,22 @@ def get_legal_moves(board: chess.Board, square: str = None) -> list:
             return []
     return list(board.legal_moves)
 
-def make_move(board: chess.Board, move: str) -> bool:
-    """Выполняет ход на доске. Возвращает True при успехе."""
+def make_move(board: chess.Board, move: str) -> Tuple[bool, Optional[chess.Piece]]:
+    """Выполняет ход на доске. Возвращает (успех, взятая фигура)."""
     try:
         move_obj = chess.Move.from_uci(move)
-        if move_obj in board.legal_moves:
-            board.push(move_obj)
-            return True
-        return False
+        if move_obj not in board.legal_moves:
+            return False, None
+        
+        # Фиксируем фигуру перед взятием
+        captured_piece = board.piece_at(move_obj.to_square)
+        
+        # Выполняем ход
+        board.push(move_obj)
+        
+        return True, captured_piece
     except ValueError:
-        return False
+        return False, None
 
 def get_game_result(board: chess.Board) -> str:
     """Возвращает результат завершенной игры."""

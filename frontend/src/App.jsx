@@ -17,6 +17,7 @@ const App = () => {
   const [gameState, setGameState] = useState(null);
   const [gameScore, setGameScore] = useState("0 - 0");
   const [lastConfig, setLastConfig] = useState(null);
+  const [playerScores, setPlayerScores] = useState({ player1: 0, player2: 0, draws: 0 });
 
   const startGame = async (config) => {
     try {
@@ -40,6 +41,7 @@ const App = () => {
       setGameState(null);
       setGameScore("0 - 0");
       setLastConfig(config);
+      setPlayerScores({ player1: 0, player2: 0, draws: 0 });
     } catch (error) {
       alert(error.message);
     }
@@ -54,6 +56,14 @@ const App = () => {
       
       const data = await response.json();
       setGameScore(data.score);
+      
+      if (data.scores) {
+        setPlayerScores({
+          player1: data.scores[data.player1].wins || 0,
+          player2: data.scores[data.player2].wins || 0,
+          draws: data.scores[data.player1].draws || 0
+        });
+      }
     } catch (error) {
       console.error('Ошибка при получении счета:', error);
     }
@@ -102,6 +112,7 @@ const App = () => {
     setMode(null);
     setGameId(null);
     setGameState(null);
+    setPlayerScores({ player1: 0, player2: 0, draws: 0 });
   };
 
   if (!mode) {
@@ -115,7 +126,8 @@ const App = () => {
     <div className="game-container">
       <div className="game-header">
         <div className="score-board">
-          {gameScore}
+          {playerScores.player1} - {playerScores.player2}
+          {playerScores.draws > 0 && ` (${playerScores.draws} ничьих)`}
         </div>
         
         <button 
@@ -133,6 +145,7 @@ const App = () => {
           playerNumber={1} 
           gameId={gameId} 
           gameMode={mode}
+          capturedPieces={gameState?.captured_by_player1 || []}
         />
         
         <div className="board-container">
@@ -152,6 +165,7 @@ const App = () => {
           playerNumber={2} 
           gameId={gameId} 
           gameMode={mode}
+          capturedPieces={gameState?.captured_by_player2 || []}
         />
       </div>
 

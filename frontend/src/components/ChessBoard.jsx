@@ -51,28 +51,37 @@ const ChessBoard = ({ gameId, gameState, onMove }) => {
     }
   };
 
-  const PromotionSelector = ({ color }) => (
-    <div className="promotion-selector">
-      <p>Выберите фигуру:</p>
-      <div className="promotion-options">
-        {['q', 'r', 'b', 'n'].map(piece => (
-          <button key={piece} onClick={() => handlePromotion(piece)}>
-            <img 
-              src={`/pieces/${color}${piece}.svg`} 
-              alt={piece}
-              className="promotion-piece"
-            />
-          </button>
-        ))}
+  const PromotionSelector = ({ color }) => {
+    const pieces = {
+      'q': 'Ф', // Ферзь
+      'r': 'Л', // Ладья
+      'b': 'С', // Слон
+      'n': 'К'  // Конь
+    };
+    
+    return (
+      <div className="promotion-selector">
+        <p>Выберите фигуру:</p>
+        <div className="promotion-options">
+          {Object.entries(pieces).map(([key, symbol]) => (
+            <button 
+              key={key}
+              className="promotion-button"
+              onClick={() => handlePromotion(key)}
+            >
+              {symbol}
+            </button>
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const onSquareClick = async (square) => {
     if (promotionMove) return;
 
     if (gameState.game_over || gameState.ai_thinking || 
-        (gameState.mode === 'pvai' && gameState.turn === 'black')) {
+        (gameState.mode === 'pvai' && gameState.turn === 'чёрные')) {
       return;
     }
 

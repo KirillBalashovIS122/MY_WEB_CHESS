@@ -4,7 +4,7 @@ const API_BASE_URL = process.env.NODE_ENV === 'development'
   ? 'http://localhost:8000' 
   : '/api';
 
-const PlayerInfo = ({ player, moves, playerNumber, gameId, gameMode }) => {
+const PlayerInfo = ({ player, moves, playerNumber, gameId, gameMode, capturedPieces }) => {
   const handleSurrender = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/game/surrender`, {
@@ -25,26 +25,62 @@ const PlayerInfo = ({ player, moves, playerNumber, gameId, gameMode }) => {
     }
   };
 
-  const playerMoves = moves
-    .map((move, index) => ({ move, index }))
-    .filter(item => 
-      playerNumber === 1 ? item.index % 2 === 0 : item.index % 2 === 1
-    );
+  const isAI = (gameMode === 'pvai' && playerNumber === 2) || gameMode === 'aivai';
+
+  const pieceImages = {
+    'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛',
+    'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕'
+  };
+
+  const pieceValues = {
+    'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9,
+    'P': 1, 'N': 3, 'B': 3, 'R': 5, 'Q': 9
+  };
+
+  const capturedValue = capturedPieces.reduce(
+    (sum, piece) => sum + (pieceValues[piece] || 0), 0
+  );
+
+  const renderCapturedPieces = () => {
+    return capturedPieces.map((piece, index) => (
+      <span key={index} className="captured-piece">
+        <span className={`piece-${piece}`}>
+          {pieceImages[piece]}
+        </span>
+        <span className="piece-value">+{pieceValues[piece]}</span>
+      </span>
+    ));
+  };
+
+  const groupedMoves = [];
+  for (let i = 0; i < moves.length; i += 2) {
+    groupedMoves.push({
+      white: moves[i],
+      black: moves[i + 1] || ''
+    });
+  }
 
   return (
     <div className={`player-info player-${playerNumber}`}>
-      <h3>{player}</h3>
+      <div className="player-header">
+        <h3>{player} ({capturedValue})</h3>
+      </div>
+      
+      <div className="captured-pieces">
+        {renderCapturedPieces()}
+      </div>
       
       <div className="moves-container">
-        {playerMoves.map((item, i) => (
-          <div key={i} className="move-item">
-            <span className="move-number">{Math.floor(item.index / 2) + 1}.</span>
-            <span className="move-text">{item.move}</span>
+        {groupedMoves.map((movePair, index) => (
+          <div key={index} className="move-item">
+            <span className="move-number">{index + 1}.</span>
+            <span className="move-text">{movePair.white}</span>
+            <span className="move-text">{movePair.black}</span>
           </div>
         ))}
       </div>
       
-      {gameMode !== 'aivai' && (
+      {!isAI && (
         <button 
           className="surrender-button" 
           onClick={handleSurrender}
